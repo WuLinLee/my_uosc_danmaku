@@ -1626,8 +1626,12 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
         end
 
         if event.action then
+            if event.action == "blacklist_manager" then
+                if open_managed_blacklist_menu then open_managed_blacklist_menu() end
+                return
+            end
             local config = menu_items_config[event.action]
-            if config and event.action ~= "blacklist_manager" then
+            if config then
                 if event.action == "live_fps_mode" then
                     set_live_fps_mode(config.original)
                 else
