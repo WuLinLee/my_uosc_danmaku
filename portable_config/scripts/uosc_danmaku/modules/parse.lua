@@ -10,28 +10,6 @@ local function ass_escape(text)
                :gsub("\n", "\\N")
 end
 
--- Big uses ASS weight 900 where available. Some font providers map that request
--- to the same face as ordinary bold, so add a same-fill underlay stroke as a
--- visual fallback. The original event is drawn after this copy, preserving its
--- configured outline and keeping layout calculations unchanged.
-local function make_big_bold_underlay(event)
-    local underlay = {}
-    for key, value in pairs(event) do
-        underlay[key] = value
-    end
-
-    local outline = math.max(0, tonumber(options.outline) or 1) + 0.8
-    local has_color = false
-    underlay.text = tostring(event.text or ""):gsub("{\\c&H([%x]+)&}", function(color)
-        if has_color then return "{\\c&H" .. color .. "&}" end
-        has_color = true
-        return string.format("{\\c&H%s&\\3c&H%s&\\bord%.2f\\shad0}", color, color, outline)
-    end, 1)
-
-    if has_color then return underlay end
-    return nil
-end
-
 -- 构建 per-source 的延迟查询函数
 local function make_delay_lookup(source)
     local segments = nil
@@ -1059,10 +1037,6 @@ function convert_danmaku_to_ass_events(force)
                 layer = (style == "R2L") and 0 or 1,
                 source = d.source,
             }
-            if is_big_bold then
-                local underlay = make_big_bold_underlay(event)
-                if underlay then table.insert(ass_events, underlay) end
-            end
             table.insert(ass_events, event)
             COMMENTS = ass_events
         end
@@ -1113,10 +1087,6 @@ function build_live_ass_events(danmakus)
                     layer = 0,
                     source = "live",
                 }
-                if is_big_bold then
-                    local underlay = make_big_bold_underlay(event)
-                    if underlay then events[#events + 1] = underlay end
-                end
                 events[#events + 1] = event
             end
         end
