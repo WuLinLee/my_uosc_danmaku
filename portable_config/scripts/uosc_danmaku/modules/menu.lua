@@ -1626,7 +1626,17 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
             return
         elseif event.action == "clear-style-default" then
             local ok, detail = clear_danmaku_style_defaults()
-            show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
+            if ok then
+                -- The saved JSON was the old baseline. After clearing, individual
+                -- reset buttons must target the effective .conf/script defaults.
+                for _, setting_key in ipairs(ordered_keys) do
+                    if setting_key ~= "blacklist_manager" then
+                        menu_items_config[setting_key].original = options[setting_key]
+                    end
+                end
+                refresh_style_hints()
+            end
+            show_message(ok and "已清除已保存设置，并将当前弹幕和菜单恢复为脚本配置默认值" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
         end
