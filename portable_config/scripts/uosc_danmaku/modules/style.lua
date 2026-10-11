@@ -8,7 +8,6 @@ local LIVE_FPS_MODE_PROPERTY = "user-data/uosc_danmaku/live-fps-mode"
 
 local STYLE_KEYS = {
     "bold",
-    "bold_mode",
     "fontname",
     "fontsize",
     "outline",
@@ -54,9 +53,6 @@ local function valid_style_value(key, value)
     if key == "bold" or key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
         return type(value) == "boolean"
     end
-    if key == "bold_mode" then
-        return type(value) == "string" and (value:lower() == "auto" or value:lower() == "big")
-    end
     if key == "fontname" then
         return type(value) == "string" and #value > 0 and #value <= 256 and not value:match("[%z\r\n]")
     end
@@ -89,12 +85,7 @@ local function valid_style_value(key, value)
 end
 
 local function normalized_style_value(key, value)
-    -- Big uses a runtime sentinel so render.lua's signature detects a weight-mode change.
-    -- Save it as a boolean to keep old style files and validation compatible.
-    if key == "bold" then
-        return value == true or value == "Big"
-    end
-    if key == "bold_mode" then return tostring(value or "auto"):lower() end
+    if key == "bold" then return value == true end
     if key == "fontname" or key == "live_fps_mode"
         or key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
         return value
@@ -124,10 +115,6 @@ function load_danmaku_style_defaults()
             options[key] = normalized_style_value(key, value)
         end
     end
-    -- Old style JSON files only have bold=true/false; keep their original behavior.
-    if decoded.bold_mode == nil and decoded.bold ~= nil then
-        options.bold_mode = "auto"
-    end
     publish_style_state("loaded")
     return true
 end
@@ -135,9 +122,8 @@ end
 function save_danmaku_style_defaults()
     local defaults = {
         bold = false,
-        bold_mode = "auto",
-        fontname = "sans-serif",
-        fontsize = 50,
+        fontname = "Source Han Sans",
+        fontsize = 55,
         outline = 1,
         shadow = 0,
         scrolltime = 15,
@@ -155,8 +141,7 @@ function save_danmaku_style_defaults()
     local values = {}
     for _, key in ipairs(STYLE_KEYS) do
         local source_value = options[key]
-        -- Allow mixed plugin versions to save defaults even if a newer option
-        -- such as bold_mode has not yet been added to the loaded options table.
+        -- Allow mixed plugin versions to save defaults if an option is missing.
         if source_value == nil then source_value = defaults[key] end
         local value = normalized_style_value(key, source_value)
         if not valid_style_value(key, value) then
