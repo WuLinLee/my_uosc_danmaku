@@ -950,21 +950,24 @@ function open_style_menu_uosc(actived, status)
         end
         table.insert(items, item_config)
     end
+    -- 底部只显示右侧动作按钮，整行不可激活，避免被误判为第一项粗体。
     table.insert(items, {
         title = "保存当前样式和过滤设置",
         hint = "设为跨进程默认",
-        value = "save-style-default",
+        value = "style-default-save-row",
         icon = "save",
         keep_open = true,
-        selectable = true,
+        selectable = false,
+        actions = {{icon = "refresh", name = "save-style-default", label = "保存当前样式和过滤设置"}},
     })
     table.insert(items, {
         title = "清除已保存样式和过滤设置",
         hint = "恢复脚本默认值",
-        value = "clear-style-default",
+        value = "style-default-clear-row",
         icon = "delete",
         keep_open = true,
-        selectable = true,
+        selectable = false,
+        actions = {{icon = "refresh", name = "clear-style-default", label = "清除已保存样式和过滤设置"}},
     })
 
     local menu_props = {
@@ -1612,24 +1615,24 @@ end)
 mp.register_script_message("setup-danmaku-style", function(query, text)
     local event = utils.parse_json(query)
     if type(event) == "table" and event.type == "activate" then
-        -- 先按保存/清除项自身的唯一 value 识别，避免 event.action 或选中索引
-        -- 被 uosc 的重置按钮事件影响时，误落到首项粗体开关。
         local item_value = event.value
-        local item_index = tonumber(event.index)
-        if item_value == "save-style-default" or item_index == #ordered_keys + 1 then
+
+        -- 底部两项只允许通过右侧动作按钮触发，完全按 action 名称分发。
+        -- 不依赖行索引/value，避免 uosc 返回的焦点索引误触粗体开关。
+        if event.action == "save-style-default" then
             local ok, detail = save_danmaku_style_defaults()
             show_message(ok and "已保存当前样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
-        elseif item_value == "clear-style-default" or item_index == #ordered_keys + 2 then
+        elseif event.action == "clear-style-default" then
             local ok, detail = clear_danmaku_style_defaults()
             show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
         end
 
-        -- 只有确实来自设置项的 action 才执行“恢复默认值”；
-        -- 未知 action 直接忽略，绝不能回退成 ordered_keys[1]（粗体）。
+        -- 普通设置的恢复按钮只接受真实配置项名称；底部展示行值不是设置项。
+        -- 未知 action 直接忽略，绝不按索引回退到第一项粗体。
         if event.action then
             if event.action == "blacklist_manager" then
                 if open_managed_blacklist_menu then open_managed_blacklist_menu() end
@@ -1652,8 +1655,6 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
         local key = nil
         if type(item_value) == "string" and menu_items_config[item_value] then
             key = item_value
-        elseif item_index then
-            key = ordered_keys[item_index]
         end
         if key == "blacklist_manager" then
             if open_managed_blacklist_menu then open_managed_blacklist_menu() end
