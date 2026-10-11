@@ -720,150 +720,171 @@ function open_content_menu(pos)
     end
 end
 
-local function bold_mode_label()
-    if tostring(options.bold_mode or "auto"):lower() == "big" then return "Big" end
-    return options.bold and "true" or "false"
+local read_managed_blacklist
+local open_managed_blacklist_menu
+
+local function style_hint(key)
+    if key == "bold" then return options.bold and "true" or "false" end
+    if key == "density" then return tostring(tonumber(options.density) or 100) .. " / 100" end
+    if key == "row_spacing" then return string.format("%.1fx", tonumber(options.row_spacing) or 1.2) end
+    if key == "balanced_lanes" then return options.balanced_lanes ~= false and "开启（均匀分布）" or "关闭（从上往下填充）" end
+    if key == "merge_tolerance" then
+        local value = tonumber(options.merge_tolerance) or -1
+        if value < 0 then return "关闭" end
+        return tostring(value) .. " 秒"
+    end
+    if key == "max_screen_danmaku" then
+        local value = tonumber(options.max_screen_danmaku) or 0
+        return value == 0 and "不限制" or tostring(value) .. " 条"
+    end
+    if key == "merge_without_style" then return options.merge_without_style and "开启" or "关闭" end
+    if key == "blacklist_enabled" then return options.blacklist_enabled ~= false and "开启" or "关闭" end
+    if key == "blacklist_manager" then
+        local entries = read_managed_blacklist and read_managed_blacklist() or {}
+        return "管理菜单维护的屏蔽词（" .. tostring(#entries) .. " 条）"
+    end
+    return tostring(options[key] or "")
+end
+
+local function refresh_style_setting()
+    local refreshed_live = false
+    if refresh_live_danmaku_style then
+        local ok, result = pcall(refresh_live_danmaku_style)
+        refreshed_live = ok and result == true
+    end
+    if not refreshed_live and load_danmaku then pcall(load_danmaku, true, true) end
+end
+
+local function settings_equal(key, a, b)
+    if key == "blacklist_manager" then return true end
+    if type(a) == "number" or type(b) == "number" then
+        return tonumber(a) ~= nil and tonumber(b) ~= nil and tonumber(a) == tonumber(b)
+    end
+    return a == b
 end
 
 local menu_items_config = {
-    bold = { title = "粗体", hint = bold_mode_label(), original = bold_mode_label(),
-        original_bold = options.bold, original_mode = tostring(options.bold_mode or "auto"):lower(),
-        choices = {"false", "true", "Big"}, footnote = "Big 请求 ASS 900 字重；效果取决于字体是否提供更重字形", },
+    bold = { title = "粗体", hint = options.bold and "true" or "false", original = options.bold,
+        choices = {"false", "true"}, footnote = "输入 true / false，也可输入 y 切换" },
     fontsize = { title = "大小", hint = options.fontsize, original = options.fontsize,
-        scope = { min = 0, max = math.huge }, footnote = "请输入整数(>=0)", },
+        scope = { min = 1, max = 500 }, integer = true, footnote = "输入整数（1-500）" },
     outline = { title = "描边", hint = options.outline, original = options.outline,
-        scope = { min = 0.0, max = 4.0 }, footnote = "输入范围：(0.0-4.0)" },
+        scope = { min = 0, max = 4 }, decimals = 1, footnote = "输入范围：0.0-4.0" },
     shadow = { title = "阴影", hint = options.shadow, original = options.shadow,
-        scope = { min = 0, max = math.huge }, footnote = "请输入整数(>=0)", },
+        scope = { min = 0, max = 20 }, decimals = 1, footnote = "输入范围：0-20" },
     scrolltime = { title = "速度", hint = options.scrolltime, original = options.scrolltime,
-        scope = { min = 1, max = math.huge }, footnote = "请输入整数(>=1)", },
+        scope = { min = 1, max = 120 }, integer = true, footnote = "输入整数（1-120 秒）" },
     opacity = { title = "透明度", hint = options.opacity, original = options.opacity,
-        scope = { min = 0, max = 1 }, footnote = "输入范围：0（完全透明）到1（不透明）", },
+        scope = { min = 0, max = 1 }, decimals = 2, footnote = "输入范围：0（透明）到 1（不透明）" },
     displayarea = { title = "弹幕显示范围", hint = options.displayarea, original = options.displayarea,
-        scope = { min = 0.0, max = 1.0 }, footnote = "显示范围(0.0-1.0)" },
+        scope = { min = 0, max = 1 }, decimals = 2, footnote = "显示范围（0.0-1.0）" },
     live_fps_mode = { title = "直播帧率", hint = options.live_fps_mode, original = options.live_fps_mode,
-        choices = {"auto", "60", "80", "120", "display"}, footnote = "auto / 60 / 80 / 120 / display", },
+        choices = {"auto", "60", "80", "120", "display"}, footnote = "auto / 60 / 80 / 120 / display" },
+    density = { title = "智能弹幕密度", hint = style_hint("density"), original = options.density,
+        scope = { min = 0, max = 100 }, integer = true, footnote = "输入 0-100；100 不进行智能密度筛选" },
+    row_spacing = { title = "弹幕行间距", hint = style_hint("row_spacing"), original = options.row_spacing,
+        scope = { min = 1, max = 2 }, decimals = 1, footnote = "输入 1.0-2.0；1.2 约增加 20% 行间距" },
+    balanced_lanes = { title = "均匀分布弹幕轨道", hint = style_hint("balanced_lanes"), original = options.balanced_lanes,
+        toggle = true, footnote = "点击切换均匀分布或从上往下填充" },
+    merge_tolerance = { title = "重复弹幕合并间隔", hint = style_hint("merge_tolerance"), original = options.merge_tolerance,
+        scope = { min = -1, max = 30 }, decimals = 1, footnote = "单位秒：-1 关闭，0 只合并同一时间点，正数为合并窗口" },
+    max_screen_danmaku = { title = "同屏弹幕上限", hint = style_hint("max_screen_danmaku"), original = options.max_screen_danmaku,
+        scope = { min = 0, max = 500 }, integer = true, footnote = "输入 0-500；0 表示不限制" },
+    merge_without_style = { title = "跨颜色/类型合并重复弹幕", hint = style_hint("merge_without_style"), original = options.merge_without_style,
+        toggle = true, footnote = "开启后，相同文字即使颜色或类型不同也可合并" },
+    blacklist_enabled = { title = "屏蔽词过滤", hint = style_hint("blacklist_enabled"), original = options.blacklist_enabled,
+        toggle = true, footnote = "启用或暂停屏蔽词规则" },
+    blacklist_manager = { title = "管理屏蔽词规则", hint = "打开规则管理", original = nil,
+        footnote = "管理菜单维护的屏蔽词；每行一条 Lua pattern" },
 }
--- 创建一个包含键顺序的表，这是样式菜单的排布顺序
-local ordered_keys = {"bold", "fontsize", "outline", "shadow", "scrolltime", "opacity", "displayarea", "live_fps_mode"}
+local ordered_keys = {
+    "bold", "fontsize", "outline", "shadow", "scrolltime", "opacity", "displayarea", "live_fps_mode",
+    "density", "row_spacing", "balanced_lanes", "merge_tolerance", "max_screen_danmaku",
+    "merge_without_style", "blacklist_enabled", "blacklist_manager",
+}
 
-local function refresh_after_bold_change()
-    -- Big changes the ASS override tag. Rebuild the current danmaku so the ASS track is refreshed.
-    if load_danmaku then
-        pcall(load_danmaku, true, true)
-    elseif refresh_live_danmaku_style then
-        pcall(refresh_live_danmaku_style)
-    end
+local function refresh_style_hints()
+    for _, key in ipairs(ordered_keys) do menu_items_config[key].hint = style_hint(key) end
 end
 
-local function set_bold_mode(value)
-    value = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    local normalized = value:lower()
-    if normalized == "y" or normalized == "cycle" then
-        local current = bold_mode_label()
-        normalized = current == "false" and "true" or current == "true" and "big" or "false"
-    end
-
-    if normalized == "false" or normalized == "no" or normalized == "off" or normalized == "0" then
+local function set_bold_value(value)
+    local normalized = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    if normalized == "y" or normalized == "cycle" or normalized == "toggle" then
+        options.bold = not options.bold
+    elseif normalized == "false" or normalized == "no" or normalized == "off" or normalized == "0" then
         options.bold = false
-        options.bold_mode = "auto"
     elseif normalized == "true" or normalized == "yes" or normalized == "on" or normalized == "1" then
         options.bold = true
-        options.bold_mode = "auto"
-    elseif normalized == "big" then
-        -- Runtime sentinel changes render.lua's existing signature even though it only knows bool bold.
-        options.bold = "Big"
-        options.bold_mode = "big"
     else
         return false
     end
-
-    menu_items_config.bold.hint = bold_mode_label()
-    refresh_after_bold_change()
+    refresh_style_hints()
+    refresh_style_setting()
     return true
 end
 
--- 设置弹幕样式菜单
+local function set_boolean_setting(key, value)
+    if key ~= "balanced_lanes" and key ~= "merge_without_style" and key ~= "blacklist_enabled" then return false end
+    local normalized = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    if normalized == "y" or normalized == "toggle" then
+        options[key] = not options[key]
+    elseif normalized == "true" or normalized == "yes" or normalized == "on" or normalized == "1" then
+        options[key] = true
+    elseif normalized == "false" or normalized == "no" or normalized == "off" or normalized == "0" then
+        options[key] = false
+    else
+        return false
+    end
+    refresh_style_hints()
+    refresh_style_setting()
+    return true
+end
+
 function open_style_menu_get(query, indicator)
     mp.commandv('script-message-to', 'console', 'disable')
     local menu_log = {}
-
-    local select_num = 0
-    local select_query = nil
+    local select_num, select_query = 0, nil
     if query then
-        if tonumber(query) ~= nil then
-            select_num = tonumber(query)
+        if tonumber(query) ~= nil then select_num = tonumber(query)
         else
-            for i, v in ipairs(ordered_keys) do
-                if v == query then
-                    select_num = i
-                end
-            end
+            for i, key in ipairs(ordered_keys) do if key == query then select_num = i end end
         end
         select_query = ordered_keys[select_num]
     end
 
     local function build_menu(source)
+        refresh_style_hints()
         menu_log = {
-            { text = "【弹幕样式菜单】", style = "{\\c&H00CCFF&\\b1}" },
-            { text = ("-"):rep(33), style = "{\\c&H888888&}" }
+            { text = "【弹幕样式】", style = "{\\c&H00CCFF&\\b1}" },
+            { text = ("-"):rep(40), style = "{\\c&H888888&}" }
         }
-
-        local serial = 0
-        for _, key in ipairs(ordered_keys) do
-            serial = serial + 1
+        for i, key in ipairs(ordered_keys) do
             local config = menu_items_config[key]
-            local text = string.format("  [%02d] %s   [目前：%s] ", serial, config.title, config.hint)
-            text = config.hint ~= config.original and text .. "⟳" or text
-            local style = serial == select_num and "{\\c&HFFDE7F&}" or "{\\c&HCCCCCC&}"
-            local item_config = { text = text, style = style }
-            table.insert(menu_log, item_config)
+            local text = string.format("  [%02d] %s   [目前：%s] ", i, config.title, style_hint(key))
+            if key ~= "blacklist_manager" and not settings_equal(key, options[key], config.original) then text = text .. "⟳" end
+            table.insert(menu_log, { text = text, style = i == select_num and "{\\c&HFFDE7F&}" or "{\\c&HCCCCCC&}" })
         end
-
-        table.insert(menu_log, { text = ("-"):rep(33), style = "{\\c&H888888&}" })
+        table.insert(menu_log, { text = ("-"):rep(40), style = "{\\c&H888888&}" })
         if select_num == 0 then
-            table.insert(menu_log, {
-                text = "注: 修改先对本次播放生效，可用保存按钮设为跨进程默认",
-                style = "{\\c&HFFDE7F&}"
-            })
-            table.insert(menu_log, {
-                text = "输入【p】保存当前样式为跨进程默认；输入【c】清除保存样式",
-                style = "{\\c&H999999&}"
-            })
-            table.insert(menu_log, {
-                text = "提示: 输入【w】可上移选项，【s】可下移选项",
-                style = "{\\c&H999999&}"
-            })
+            table.insert(menu_log, { text = "修改立即对本次播放生效；底部统一保存为跨进程默认", style = "{\\c&HFFDE7F&}" })
+            table.insert(menu_log, { text = "输入 p 保存当前样式和过滤设置；输入 c 清除已保存设置", style = "{\\c&H999999&}" })
+            table.insert(menu_log, { text = "输入 w/s 上下移动；粗体和开关项输入 y 切换", style = "{\\c&H999999&}" })
         else
-            local input_text = source and source or ""
             local config = menu_items_config[select_query]
-            local suffix = ""
-            if config and config.hint ~= config.original then
-                suffix = "（输入\\r恢复默认配置）"
-            end
-            input_text = string.format("已输入%s: %s", suffix, input_text)
-
-            local scope = config and config.footnote or ""
-            local hint_text = select_query == "bold"
-                and "提示: 输入 y 循环 false / true / Big，也可直接输入值"
-                or "提示: " .. scope
+            local hint_text = "提示: " .. tostring(config and config.footnote or "")
             local hint_style = "{\\c&H999999&}"
             if source and source:lower() == "\\r" then
-                hint_text = string.format("提示: 回车将恢复默认配置 < %s >", config.original)
-            end
-            if indicator == "refresh" or indicator == "updata" then
-                indicator = ""
-                hint_text = "提示: 样式更改成功"
+                hint_text = "提示: 输入回车恢复默认值"
+            elseif indicator == "refresh" or indicator == "updata" then
+                hint_text = "提示: 设置更改成功"
                 hint_style = "{\\c&HFFDE7F&}"
                 mp.add_timeout(1.5, build_menu)
             elseif indicator == "error" then
-                indicator = ""
-                hint_text = "提示: 输入非数字字符或范围出错"
+                hint_text = "提示: 输入值无效或超出范围"
                 hint_style = "{\\c&H4C4CC3&}"
-                mp.add_timeout(1.5, build_menu)
+                mp.add_timeout(1.5, function() build_menu(source) end)
             end
-
-            table.insert(menu_log, { text = input_text, style = "{\\c&HCCCCCC&}" })
+            table.insert(menu_log, { text = "已输入: " .. tostring(source or ""), style = "{\\c&HCCCCCC&}" })
             table.insert(menu_log, { text = hint_text, style = hint_style })
         end
         input.set_log(menu_log)
@@ -871,81 +892,66 @@ function open_style_menu_get(query, indicator)
 
     input.get({
         keep_open = true,
-        prompt = "请在此输入操作（w/s|上移/下移）: ",
+        prompt = "设置（w/s 移动；p 保存；c 清除默认）: ",
         opened = function() build_menu() end,
         edited = function(text)
-            text = text:gsub("^%s*(.-)%s*$", "%1")
-
-            if text == "" then
-                build_menu()
-                return
-            end
-
+            text = tostring(text or ""):gsub("^%s*(.-)%s*$", "%1")
+            if text == "" then build_menu(); return end
             if text:lower() == "w" or text:lower() == "s" then
                 input.terminate()
                 select_num = text:lower() == "w" and select_num - 1 or select_num + 1
-                select_num = (select_num > #ordered_keys) and 1 or (select_num <= 0 and #ordered_keys or select_num)
-                mp.add_timeout(0.01, function()
-                    open_style_menu_get(select_num)
-                end)
+                select_num = select_num > #ordered_keys and 1 or (select_num <= 0 and #ordered_keys or select_num)
+                mp.add_timeout(0.01, function() open_style_menu_get(select_num) end)
                 return
             end
-
             if select_query == nil and (text:lower() == "p" or text:lower() == "c") then
                 input.terminate()
-                local message = text:lower() == "p" and "save-danmaku-style-default" or "clear-danmaku-style-default"
-                mp.commandv("script-message-to", mp.get_script_name(), message)
+                mp.commandv("script-message-to", mp.get_script_name(), text:lower() == "p" and "save-danmaku-style-default" or "clear-danmaku-style-default")
                 return
             end
-
             build_menu(text)
         end,
         submit = function(text)
             if select_query == nil then return end
-            text = text:gsub("^%s*(.-)%s*$", "%1")
+            text = tostring(text or ""):gsub("^%s*(.-)%s*$", "%1")
             if text == "" then return end
-
-            if text:lower() == "\\r" then
+            if text == "\\r" then
                 input.terminate()
                 local args = string.format('{"type":"activate","action":"%s","index":%d}', select_query, select_num)
                 mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", args)
-            else
-                if menu_items_config[select_query]["scope"] ~= nil then
-                    input.terminate()
-                    mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
-                elseif select_query == "bold" then
-                    input.terminate()
-                    mp.commandv("script-message-to", mp.get_script_name(), "set-danmaku-bold", text)
-                elseif menu_items_config[select_query].choices then
-                    input.terminate()
-                    mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
-                end
+                return
             end
-            return
-        end
+            if select_query == "blacklist_manager" then
+                input.terminate()
+                if open_managed_blacklist_menu then open_managed_blacklist_menu() end
+                return
+            end
+            input.terminate()
+            mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
+        end,
     })
 end
 
 function open_style_menu_uosc(actived, status)
+    refresh_style_hints()
     local items = {}
     for _, key in ipairs(ordered_keys) do
         local config = menu_items_config[key]
         local item_config = {
             title = config.title,
-            hint = "目前：" .. tostring(config.hint),
+            hint = "目前：" .. style_hint(key),
             value = key,
             active = key == actived,
             keep_open = true,
             selectable = true,
         }
-        if config.hint ~= config.original then
-            local original_str = tostring(config.original)
-            item_config.actions = {{icon = "refresh", name = key, label = "恢复默认配置 < " .. original_str .. " >"}}
+        if key ~= "blacklist_manager" and not settings_equal(key, options[key], config.original) then
+            item_config.actions = {{icon = "refresh", name = key, label = "恢复默认值 < " .. tostring(config.original) .. " >"}}
         end
         table.insert(items, item_config)
     end
     table.insert(items, {
-        title = "保存当前样式",
+        title = "保存当前样式和过滤设置",
         hint = "设为跨进程默认",
         value = "save-style-default",
         icon = "save",
@@ -953,7 +959,7 @@ function open_style_menu_uosc(actived, status)
         selectable = true,
     })
     table.insert(items, {
-        title = "清除已保存样式",
+        title = "清除已保存样式和过滤设置",
         hint = "恢复脚本默认值",
         value = "clear-style-default",
         icon = "delete",
@@ -965,7 +971,7 @@ function open_style_menu_uosc(actived, status)
         type = "menu_style",
         title = "弹幕样式",
         search_style = "disabled",
-        footnote = "修改先对本次播放生效，可用保存按钮设为跨进程默认",
+        footnote = "样式和过滤共用一份默认配置；底部保存/清除统一生效",
         item_actions_place = "outside",
         items = items,
         callback = { mp.get_script_name(), 'setup-danmaku-style'},
@@ -973,38 +979,30 @@ function open_style_menu_uosc(actived, status)
 
     local actions = "open-menu"
     if status ~= nil then
-        -- msg.info(status)
         if status == "updata" then
-            -- "updata" 模式会保留输入框文字
-            menu_props.title = "  " .. menu_items_config[actived]["footnote"]
+            menu_props.title = "  " .. (menu_items_config[actived] and menu_items_config[actived].footnote or "修改设置")
             actions = "update-menu"
         elseif status == "refresh" then
-            -- "refresh" 模式会清除输入框文字
-            menu_props.title = "  " .. menu_items_config[actived]["footnote"]
+            menu_props.title = "  " .. (menu_items_config[actived] and menu_items_config[actived].footnote or "修改设置")
         elseif status == "error" then
-            menu_props.title = "输入非数字字符或范围出错"
-            -- 创建一个定时器，在1秒后触发回调函数，删除搜索栏错误信息
+            menu_props.title = "输入值无效或超出范围"
             mp.add_timeout(1.0, function() open_style_menu_uosc(actived, "updata") end)
         end
         menu_props.search_style = "palette"
         menu_props.search_debounce = "submit"
-        menu_props.footnote = menu_items_config[actived]["footnote"] or ""
+        menu_props.footnote = menu_items_config[actived] and menu_items_config[actived].footnote or ""
         menu_props.on_search = { "script-message-to", mp.get_script_name(), "setup-danmaku-style", actived }
     end
-
-    local json_props = utils.format_json(menu_props)
-    mp.commandv("script-message-to", "uosc", actions, json_props)
+    mp.commandv("script-message-to", "uosc", actions, utils.format_json(menu_props))
 end
 
 function open_style_menu(actived, status)
     if uosc_available then
         open_style_menu_uosc(actived, status)
     elseif input_loaded then
-        mp.add_timeout(0.01, function()
-            open_style_menu_get(actived, status)
-        end)
+        mp.add_timeout(0.01, function() open_style_menu_get(actived, status) end)
     else
-        show_message("无支持可用的 UI框架，不支持使用该功能", 3)
+        show_message("无支持可用的 UI 框架，不支持使用该功能", 3)
     end
 end
 
