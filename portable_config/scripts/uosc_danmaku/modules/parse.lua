@@ -926,7 +926,7 @@ function convert_danmaku_to_ass_events(force)
         msg.info("已解析 " .. #danmakus .. " 条弹幕")
     end
 
-    local fontsize = tonumber(options.fontsize) or 50
+    local fontsize = tonumber(options.fontsize) or 55
     local scrolltime = tonumber(options.scrolltime) or 15
     local fixtime = tonumber(options.fixtime) or 5
 
@@ -1046,7 +1046,7 @@ end
 -- shares the static parser's conversion, blacklist, font measurement and lane
 -- selection code, but never touches COMMENTS or DANMAKU.sources.
 function build_live_ass_events(danmakus)
-    local fontsize = tonumber(options.fontsize) or 50
+    local fontsize = tonumber(options.fontsize) or 55
     local scrolltime = tonumber(options.scrolltime) or 15
     local res_x, res_y = 1920, 1080
     local layout_res_y = math.floor(res_y * (tonumber(options.displayarea) or 1.0))
