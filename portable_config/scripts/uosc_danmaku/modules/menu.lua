@@ -1472,7 +1472,7 @@ function open_danmaku_filter_menu()
         elseif key == "clear_defaults" then
             hint = "删除已保存的默认配置"
         end
-        items[#items + 1] = { title = labels[key], hint = hint, keep_open = true, selectable = true }
+        items[#items + 1] = { title = labels[key], hint = hint, value = key, keep_open = true, selectable = true }
     end
     local props = {
         type = "menu_danmaku_filter",
@@ -1502,12 +1502,12 @@ function open_danmaku_filter_menu()
                 elseif key == "blacklist_manager" then
                     open_managed_blacklist_menu()
                 elseif key == "save_defaults" then
-                    local ok = save_danmaku_style_defaults()
-                    show_message(ok and "已保存样式和过滤设置" or "保存设置失败", 2)
+                    local ok, detail = save_danmaku_style_defaults()
+                    show_message(ok and "已保存样式和过滤设置" or tostring(detail), ok and 2 or 4)
                     open_danmaku_filter_menu()
                 elseif key == "clear_defaults" then
-                    local ok = clear_danmaku_style_defaults()
-                    show_message(ok and "已清除已保存的默认设置" or "清除设置失败", 2)
+                    local ok, detail = clear_danmaku_style_defaults()
+                    show_message(ok and "已清除已保存的默认设置" or tostring(detail), ok and 2 or 4)
                     open_danmaku_filter_menu()
                 end
             end,
@@ -1877,7 +1877,7 @@ end)
 mp.register_script_message("handle-danmaku-filter-menu", function(json)
     local event = utils.parse_json(json)
     if not event or event.type ~= "activate" then return end
-    local key = event.action and event.action or filter_menu_order[event.index]
+    local key = event.action or event.value or filter_menu_order[event.index]
     if not key then return end
 
     if filter_value_config[key] then
@@ -1889,12 +1889,12 @@ mp.register_script_message("handle-danmaku-filter-menu", function(json)
     elseif key == "blacklist_manager" then
         open_managed_blacklist_menu()
     elseif key == "save_defaults" then
-        if save_danmaku_style_defaults() then show_message("已保存样式和过滤设置为跨进程默认", 2)
-        else show_message("保存设置失败，请检查日志", 3) end
+        local ok, detail = save_danmaku_style_defaults()
+        show_message(ok and "已保存样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
         open_danmaku_filter_menu_refresh()
     elseif key == "clear_defaults" then
-        if clear_danmaku_style_defaults() then show_message("已清除已保存的样式和过滤设置", 2)
-        else show_message("清除设置失败，请检查日志", 3) end
+        local ok, detail = clear_danmaku_style_defaults()
+        show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
         open_danmaku_filter_menu_refresh()
     end
 end)
