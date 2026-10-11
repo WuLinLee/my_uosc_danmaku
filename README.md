@@ -6,7 +6,7 @@
 E:\mpv-lazy\mpv-lazy\\
 
 保留目录结构；不要把 portable_config 再解压进另一个 portable_config 目录。
-这次更新涉及 4 个弹幕脚本模块和 3 个弹幕配置文件，另新增一个 uosc 控制栏配置文件。`mpv.conf`、`input_uosc.conf`、字体、快捷键及其他脚本均未改动：
+这次更新涉及 4 个弹幕脚本模块和 2 个弹幕配置文件，另有 1 个 uosc 控制栏配置文件。`mpv.conf`、`input_uosc.conf`、字体、快捷键及其他脚本均未改动：
 
 - portable_config/scripts/uosc_danmaku/modules/menu.lua
 - portable_config/scripts/uosc_danmaku/modules/parse.lua
