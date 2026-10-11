@@ -192,7 +192,7 @@ function save_danmaku_style_defaults()
         return false, err
     end
 
-    local write_ok, write_err = file:write(encoded, "\\n")
+    local write_ok, write_err = file:write(encoded, "\n")
     local close_ok, close_err = file:close()
     if not write_ok or not close_ok then
         local err = "跨进程默认保存失败，写入 JSON 出错：" .. tostring(write_err or close_err or "未知错误")
@@ -250,10 +250,16 @@ function get_live_fps_modes()
 end
 
 mp.register_script_message("save-danmaku-style-default", function()
-    save_danmaku_style_defaults()
+    local ok, detail = save_danmaku_style_defaults()
+    if show_message then
+        show_message(ok and "已保存跨进程默认配置" or tostring(detail), ok and 2 or 4)
+    end
 end)
 mp.register_script_message("clear-danmaku-style-default", function()
-    clear_danmaku_style_defaults()
+    local ok, detail = clear_danmaku_style_defaults()
+    if show_message then
+        show_message(ok and "已清除跨进程默认配置" or tostring(detail), ok and 2 or 4)
+    end
 end)
 mp.register_script_message("set-live-fps-mode", set_live_fps_mode)
 
