@@ -1,6 +1,5 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
-local font_picker = require("modules/font_picker")
 local unpack = unpack or table.unpack
 
 input_loaded, input = pcall(require, "mp.input")
@@ -722,8 +721,6 @@ function open_content_menu(pos)
 end
 
 local menu_items_config = {
-    fontname = { title = "字体", hint = options.fontname, original = options.fontname,
-        footnote = "选择字体：从字体目录列表中选择，或输入字体名称", },
     bold = { title = "粗体", hint = options.bold, original = options.bold,
         footnote = "true / false", },
     fontsize = { title = "大小", hint = options.fontsize, original = options.fontsize,
@@ -741,138 +738,8 @@ local menu_items_config = {
     live_fps_mode = { title = "直播帧率", hint = options.live_fps_mode, original = options.live_fps_mode,
         choices = {"auto", "60", "80", "120", "display"}, footnote = "auto / 60 / 80 / 120 / display", },
 }
--- 创建一个包含键顺序的表，这是样式菜单的排布顺序；字体选择放在最顶部。
-local ordered_keys = {"fontname", "bold", "fontsize", "outline", "shadow", "scrolltime", "opacity", "displayarea", "live_fps_mode"}
-
-local FONT_PICKER_MAX_VISIBLE = 100
-local font_picker_visible_fonts = {}
-
-local function open_danmaku_font_picker(query, force_refresh)
-    local fonts, scan_error, directory = font_picker.get_fonts(force_refresh == true)
-    local choices, seen = {}, {}
-    local function add_choice(name)
-        if type(name) ~= "string" or name == "" then return end
-        local key = name:lower()
-        if not seen[key] then
-            seen[key] = true
-            choices[#choices + 1] = name
-        end
-    end
-
-    -- 保留通用字体和当前值，即使它们不在用户的字体文件夹中。
-    add_choice("sans-serif")
-    add_choice(tostring(options.fontname or ""))
-    for _, name in ipairs(fonts or {}) do add_choice(name) end
-    table.sort(choices, function(a, b) return a:lower() < b:lower() end)
-
-    local needle = tostring(query or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
-    local visible, total_matches = {}, 0
-    for _, name in ipairs(choices) do
-        if needle == "" or name:lower():find(needle, 1, true) then
-            total_matches = total_matches + 1
-            if #visible < FONT_PICKER_MAX_VISIBLE then
-                visible[#visible + 1] = name
-            end
-        end
-    end
-    font_picker_visible_fonts = visible
-
-    local script_name = mp.get_script_name()
-    local items = {
-        {
-            title = "刷新字体列表",
-            hint = "重新扫描字体目录（新字体添加后使用）",
-            keep_open = false,
-            selectable = true,
-            value = string.format("script-message-to %s select-danmaku-font refresh", script_name),
-        }
-    }
-    for index, name in ipairs(visible) do
-        local hint
-        if name == options.fontname then
-            hint = "当前使用"
-        elseif name == "sans-serif" then
-            hint = "通用字体（系统匹配）"
-        else
-            hint = "字体目录"
-        end
-        items[#items + 1] = {
-            title = name,
-            hint = hint,
-            active = name == options.fontname,
-            selectable = true,
-            value = string.format("script-message-to %s select-danmaku-font %d", script_name, index),
-        }
-    end
-    if #visible == 0 then
-        items[#items + 1] = {
-            title = scan_error or "没有匹配的字体",
-            italic = true,
-            selectable = false,
-        }
-    end
-
-    local footnote = string.format(
-        "来源：%s；共 %d 个匹配项。输入字体名称并回车筛选，最多显示 %d 项。",
-        tostring(directory or options.font_directory or "字体目录"),
-        total_matches,
-        FONT_PICKER_MAX_VISIBLE
-    )
-    if scan_error and #fonts == 0 then
-        footnote = scan_error .. "。请检查配置中的 font_directory。"
-    end
-    local menu_props = {
-        type = "menu_danmaku_font_picker",
-        title = needle ~= "" and ("选择弹幕字体（筛选：" .. needle .. "）") or "选择弹幕字体",
-        search_style = "palette",
-        search_debounce = "submit",
-        on_search = { "script-message-to", script_name, "open-danmaku-font-picker" },
-        footnote = footnote,
-        items = items,
-        callback = { script_name, "select-danmaku-font" },
-    }
-
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "open-menu", utils.format_json(menu_props))
-    elseif input_loaded then
-        open_menu_select(items)
-    else
-        show_message("当前没有可用的弹幕字体选择界面", 3)
-    end
-end
-
-local function apply_danmaku_font(fontname)
-    fontname = tostring(fontname or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if fontname == "" then return end
-
-    options.fontname = fontname
-    menu_items_config.fontname.hint = fontname
-
-    local loaded, detail
-    if fontname == "sans-serif" then
-        loaded, detail = true, "使用通用字体"
-    else
-        loaded, detail = font_picker.load_font(fontname)
-    end
-
-    local refreshed = false
-    if refresh_live_danmaku_style then
-        local ok, result = pcall(refresh_live_danmaku_style)
-        refreshed = ok and result ~= false
-    end
-    if not refreshed and load_danmaku then
-        pcall(load_danmaku, true, true)
-    end
-
-    if loaded then
-        show_message("弹幕字体已切换：" .. fontname, 2)
-    else
-        msg.warn("uosc_danmaku: 字体已选择，但 flash-font-ass 未能确认加载字体 " ..
-            fontname .. "：" .. tostring(detail))
-        show_message("已切换字体；flash-font-ass 加载未确认，请检查工具初始化和字体目录", 3)
-    end
-    open_style_menu("fontname")
-end
+-- 创建一个包含键顺序的表，这是样式菜单的排布顺序
+local ordered_keys = {"bold", "fontsize", "outline", "shadow", "scrolltime", "opacity", "displayarea", "live_fps_mode"}
 
 -- 设置弹幕样式菜单
 function open_style_menu_get(query, indicator)
@@ -935,9 +802,7 @@ function open_style_menu_get(query, indicator)
             input_text = string.format("已输入%s: %s", suffix, input_text)
 
             local scope = config and config.footnote or ""
-            local hint_text = select_query == "bold" and "提示: 输入【y】切换状态"
-                or select_query == "fontname" and "提示: 输入字体名称；有 uosc 时可打开字体列表选择"
-                or "提示: " .. scope
+            local hint_text = select_query == "bold" and "提示: 输入【y】切换状态" or "提示: " .. scope
             local hint_style = "{\\c&H999999&}"
             if source and source:lower() == "\\r" then
                 hint_text = string.format("提示: 回车将恢复默认配置 < %s >", config.original)
@@ -1004,9 +869,6 @@ function open_style_menu_get(query, indicator)
                 if menu_items_config[select_query]["scope"] ~= nil then
                     input.terminate()
                     mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
-                elseif select_query == "fontname" then
-                    input.terminate()
-                    mp.commandv("script-message-to", mp.get_script_name(), "set-danmaku-font", text)
                 elseif text:lower() == "y" and select_query == "bold" then
                     input.terminate()
                     local args = string.format('{"type":"activate","index":%d}', select_num)
@@ -1874,10 +1736,7 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
                 return
             end
             if not event.action then
-                if ordered_keys[event.index] == "fontname" then
-                    open_danmaku_font_picker()
-                    return
-                elseif ordered_keys[event.index] == "bold" then
+                if ordered_keys[event.index] == "bold" then
                     options.bold = not options.bold
                     menu_items_config.bold.hint = options.bold and "true" or "false"
                     refresh_live_danmaku_style()
@@ -1906,17 +1765,12 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
                 end
                 menu_items_config[event.action]["hint"] = options[event.action]
                 open_style_menu(event.action, "updata")
-                if not refresh_live_danmaku_style() and (event.action == "fontname" or event.action == "fontsize" or event.action == "scrolltime" or event.action == "displayarea" or event.action == "density") then
+                if not refresh_live_danmaku_style() and (event.action == "fontsize" or event.action == "scrolltime" or event.action == "displayarea" or event.action == "density") then
                     load_danmaku(true)
                 end
             end
         end
     else
-        -- 字体名称可以含有空格，所以要先处理字体项，不能使用下面的数字输入清洗逻辑。
-        if query == "fontname" and text ~= nil then
-            apply_danmaku_font(text)
-            return
-        end
         -- 数值输入
         if text == nil or text == "" then
             return
@@ -1949,38 +1803,6 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
         end
         open_style_menu(query, "error")
     end
-end)
-
-mp.register_script_message("open-danmaku-font-picker", function(query)
-    open_danmaku_font_picker(query or "", false)
-end)
-
-mp.register_script_message("select-danmaku-font", function(value)
-    local event = utils.parse_json(value)
-    if event and event.type == "activate" then
-        if event.action == "refresh-fonts" or event.index == 1 then
-            open_danmaku_font_picker("", true)
-            return
-        end
-        local index = tonumber(event.index) and (tonumber(event.index) - 1) or nil
-        if index and font_picker_visible_fonts[index] then
-            apply_danmaku_font(font_picker_visible_fonts[index])
-        end
-        return
-    end
-
-    if tostring(value or "") == "refresh" then
-        open_danmaku_font_picker("", true)
-        return
-    end
-    local index = tonumber(value)
-    if index and font_picker_visible_fonts[index] then
-        apply_danmaku_font(font_picker_visible_fonts[index])
-    end
-end)
-
-mp.register_script_message("set-danmaku-font", function(fontname)
-    apply_danmaku_font(fontname)
 end)
 
 mp.register_script_message("open_danmaku_filter_menu", function()
