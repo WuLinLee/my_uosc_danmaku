@@ -55,7 +55,7 @@ E:\mpv-lazy\mpv-lazy\\
 - 智能密度算法是对浏览器版思路的 LuaJIT 兼容适配，不是完整 Unicode NFKC 的逐字节等价移植。
 
 ## 验证边界
-使用系统 Lua 5.4 做过静态语法检查。由于无法在这里启动 mpv/uosc，菜单交互、播放时的过滤效果和直播刷新仍需在实际环境中测试。
+未能在这里启动你的 mpv/uosc 实际环境做播放验证。请以实际环境的 mpv 日志和菜单操作为准；菜单交互、弹幕显示及直播刷新仍需在本机验证。
 
 ## 控制栏快捷按钮
 新增 `portable_config/script-opts/uosc.conf`，将 `button:danmaku_menu` 放在 `<has_chapter>chapters` 后面。uosc 会显示一个图标按钮，悬停提示为「弹幕设置」；点击后打开插件原有的「弹幕设置」总菜单，再进入「弹幕密度与过滤」或「弹幕样式」即可。按钮使用 uosc 官方的 `set-button` + `button:<name>` 扩展方式；插件中已有 `danmaku_menu` 注册，无需新增独立 Lua 脚本。
