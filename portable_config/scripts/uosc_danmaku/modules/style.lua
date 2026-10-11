@@ -94,7 +94,7 @@ local function normalized_style_value(key, value)
     if key == "bold" then
         return value == true or value == "Big"
     end
-    if key == "bold_mode" then return tostring(value):lower() end
+    if key == "bold_mode" then return tostring(value or "auto"):lower() end
     if key == "fontname" or key == "live_fps_mode"
         or key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
         return value
@@ -133,43 +133,100 @@ function load_danmaku_style_defaults()
 end
 
 function save_danmaku_style_defaults()
+    local defaults = {
+        bold = false,
+        bold_mode = "auto",
+        fontname = "sans-serif",
+        fontsize = 50,
+        outline = 1,
+        shadow = 0,
+        scrolltime = 15,
+        opacity = 0.7,
+        displayarea = 0.85,
+        density = 100,
+        row_spacing = 1.2,
+        balanced_lanes = true,
+        merge_tolerance = -1,
+        max_screen_danmaku = 0,
+        merge_without_style = false,
+        blacklist_enabled = true,
+        live_fps_mode = "auto",
+    }
     local values = {}
     for _, key in ipairs(STYLE_KEYS) do
-        local value = normalized_style_value(key, options[key])
+        local source_value = options[key]
+        -- Allow mixed plugin versions to save defaults even if a newer option
+        -- such as bold_mode has not yet been added to the loaded options table.
+        if source_value == nil then source_value = defaults[key] end
+        local value = normalized_style_value(key, source_value)
         if not valid_style_value(key, value) then
-            msg.error("danmaku style defaults not saved: invalid " .. key)
+            local err = "跨进程默认保存失败：字段 " .. key .. " 的值无效（" .. tostring(source_value) .. "）"
+            msg.error("danmaku style defaults not saved: " .. err)
             publish_style_state("save-error")
-            return false
+            return false, err
         end
         values[key] = value
     end
 
     local encoded = utils.format_json(values)
-    local file = encoded and io.open(style_path(), "w")
-    if not file then
-        msg.error("danmaku style defaults not saved: cannot write file")
+    if type(encoded) ~= "string" or encoded == "" then
+        local err = "跨进程默认保存失败：无法生成 JSON"
+        msg.error("danmaku style defaults not saved: " .. err)
         publish_style_state("save-error")
-        return false
+        return false, err
     end
-    file:write(encoded)
-    file:close()
+
+    local path = style_path()
+    if type(path) ~= "string" or path == "" then
+        local err = "跨进程默认保存失败：无法解析 JSON 路径"
+        msg.error("danmaku style defaults not saved: " .. err)
+        publish_style_state("save-error")
+        return false, err
+    end
+
+    local file, open_err = io.open(path, "w")
+    if not file then
+        local err = "跨进程默认保存失败，无法写入：" .. path .. "（" .. tostring(open_err) .. "）"
+        msg.error("danmaku style defaults not saved: " .. err)
+        publish_style_state("save-error")
+        return false, err
+    end
+
+    local write_ok, write_err = file:write(encoded, "\\n")
+    local close_ok, close_err = file:close()
+    if not write_ok or not close_ok then
+        local err = "跨进程默认保存失败，写入 JSON 出错：" .. tostring(write_err or close_err or "未知错误")
+        msg.error("danmaku style defaults not saved: " .. err)
+        publish_style_state("save-error")
+        return false, err
+    end
+
     publish_style_state("saved")
-    return true
+    msg.info("danmaku style defaults saved to " .. path)
+    return true, path
 end
 
 function clear_danmaku_style_defaults()
     local path = style_path()
+    if type(path) ~= "string" or path == "" then
+        local err = "无法解析跨进程默认 JSON 路径"
+        msg.error("danmaku style defaults not cleared: " .. err)
+        publish_style_state("clear-error")
+        return false, err
+    end
     local exists = io.open(path, "r")
     if exists then
         exists:close()
-        if not os.remove(path) then
-            msg.error("danmaku style defaults not cleared: cannot remove file")
+        local ok, err = os.remove(path)
+        if not ok then
+            local message = "无法删除默认配置：" .. path .. "（" .. tostring(err or "未知错误") .. "）"
+            msg.error("danmaku style defaults not cleared: " .. message)
             publish_style_state("clear-error")
-            return false
+            return false, message
         end
     end
     publish_style_state("cleared")
-    return true
+    return true, path
 end
 
 function set_live_fps_mode(mode)
