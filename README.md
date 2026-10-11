@@ -17,7 +17,7 @@ E:\mpv-lazy\mpv-lazy\\
 - portable_config/script-opts/uosc.conf（新增：仅控制 uosc 控制栏排列）
 
 ## 菜单入口
-重启 mpv 后打开原有「弹幕设置」总菜单，进入新增的「弹幕密度与过滤」：
+重启 mpv 后打开原有「弹幕设置」总菜单，进入「弹幕样式」。样式与过滤参数现在集中在同一个菜单里：
 
 1. 智能弹幕密度：0–100。100 不进行智能密度筛选；数值越低，在局部弹幕拥挤时筛选越积极。
 2. 弹幕行间距：1.0–2.0 倍字号，默认 1.2；数值越高，轨道之间留出的垂直间隔越大。
@@ -27,9 +27,9 @@ E:\mpv-lazy\mpv-lazy\\
 6. 跨颜色/类型合并重复弹幕：开启后，同一内容即使类型或颜色不同也可进入同一重复合并组。
 7. 屏蔽词过滤：启用或暂停屏蔽词规则。
 8. 管理屏蔽词规则：在菜单顶部搜索栏输入规则并回车添加；每条规则右侧的删除动作可移除该规则。
-9. 保存当前样式和过滤设置 / 清除已保存的样式和过滤设置。
+9. 菜单底部统一使用「保存当前样式和过滤设置」或「清除已保存样式和过滤设置」。
 
-仓库附带的 `uosc_danmaku_style.json` 会覆盖 `uosc_danmaku.conf` 中同名的样式项，因此请连同该 JSON 一起覆盖到本机配置目录；其中字体族使用系统已安装的 `Source Han Sans`，避免旧 JSON 中的 `SimHei` 覆盖配置。字体、透明度、描边和显示范围等外观选项仍在「弹幕样式」中；弹幕密度、合并和屏蔽词设置位于「弹幕密度与过滤」菜单。「粗体」有 `false`、`true` 和 `Big` 三档，`Big` 会请求 ASS 的 900 字重；但很多字体会把多个字重映射到同一字形，所以不保证一定比 `true` 更粗。若差异不明显，需要选择本机实际安装的更粗字重字体。
+仓库附带的 `uosc_danmaku_style.json` 会覆盖 `uosc_danmaku.conf` 中同名的样式项，因此请连同该 JSON 一起覆盖到本机配置目录；默认字体族为 `Source Han Sans`，默认字号为 `55`。字体、透明度、显示范围、智能密度、行间距、轨道分布、重复合并和屏蔽词管理都已集中在「弹幕样式」菜单中。所有项目共用同一份跨进程默认 JSON，底部只有一组保存与清除操作。粗体恢复为原有的 `false` / `true` 两档，不再包含 `Big` 模式。
 
 
 ## 布局说明
@@ -49,7 +49,7 @@ E:\mpv-lazy\mpv-lazy\\
 插件目前支持的是“重复弹幕合并”：相同文字的弹幕在符合类型、颜色和时间间隔条件时会被合并，并可能显示 xN 计数。任意相似评论自动折叠、白名单优先，以及评论组展开/收起目前都未实现。
 
 ## 保留与兼容说明
-- 其他原有配置值保持不变。默认显示范围从 `displayarea=0.05` 调整为 `displayarea=0.85`；新增的配置项包括 `density=100`、`row_spacing=1.2`、`balanced_lanes=yes`、`blacklist_enabled=yes`、`blacklist_menu_path` 和 `merge_without_style=no`。
+- 默认字体大小为 `55`。其他原有配置值按已有 JSON 保留；默认显示范围、密度、行间距等值以 `uosc_danmaku_style.json` 中保存的跨进程配置为准。
 - `保存当前样式和过滤设置` 会把字体、粗体、样式、密度、行间距、均匀轨道开关、重复合并、同屏上限、跨样式合并、屏蔽词开关和直播帧率统一写入 `~~/script-opts/uosc_danmaku_style.json`；启动时该 JSON 会覆盖 `.conf` 中的同名默认值，因此它是跨进程默认值的最终来源。保存失败时，菜单会显示具体字段或文件路径错误。
 - 当同屏上限大于 0、合并间隔小于或等于 0 时，排版阶段仍按原有逻辑使用滚动时长作为实际合并窗口；菜单里显示的合并间隔不会因此被改写。
 - 智能密度算法是对浏览器版思路的 LuaJIT 兼容适配，不是完整 Unicode NFKC 的逐字节等价移植。
@@ -58,6 +58,6 @@ E:\mpv-lazy\mpv-lazy\\
 未能在这里启动你的 mpv/uosc 实际环境做播放验证。请以实际环境的 mpv 日志和菜单操作为准；菜单交互、弹幕显示及直播刷新仍需在本机验证。
 
 ## 控制栏快捷按钮
-新增 `portable_config/script-opts/uosc.conf`，将 `button:danmaku_menu` 放在 `<has_chapter>chapters` 后面。uosc 会显示一个图标按钮，悬停提示为「弹幕设置」；点击后打开插件原有的「弹幕设置」总菜单，再进入「弹幕密度与过滤」或「弹幕样式」即可。按钮使用 uosc 官方的 `set-button` + `button:<name>` 扩展方式；插件中已有 `danmaku_menu` 注册，无需新增独立 Lua 脚本。
+新增 `portable_config/script-opts/uosc.conf`，将 `button:danmaku_menu` 放在 `<has_chapter>chapters` 后面。uosc 会显示一个图标按钮，悬停提示为「弹幕设置」；点击后打开插件原有的「弹幕设置」总菜单，进入「弹幕样式」即可统一调整样式和过滤设置。按钮使用 uosc 官方的 `set-button` + `button:<name>` 扩展方式；插件中已有 `danmaku_menu` 注册，无需新增独立 Lua 脚本。
 
 没有改动 `portable_config/script-opts.conf`，以免覆盖其中的其他脚本配置。`portable_config/script-opts/uosc.conf` 是 uosc 单独使用的配置文件；如果本机已经有同名 `uosc.conf`，先备份，再把这里的 `controls=` 行合并进去。
