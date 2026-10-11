@@ -46,7 +46,7 @@ options = {
     --固定弹幕的显示时间
     fixtime = 5,
     --字体
-    fontname = "sans-serif",
+    fontname = "Source Han Sans",
     --字体大小 
     fontsize = 50,
     --字体阴影
