@@ -6,13 +6,14 @@
 E:\mpv-lazy\mpv-lazy\\
 
 保留目录结构；不要把 portable_config 再解压进另一个 portable_config 目录。
-这次更新涉及以下 5 个弹幕脚本和配置文件，另新增一个 uosc 控制栏配置文件。`mpv.conf`、`input_uosc.conf`、字体、快捷键及其他脚本均未改动：
+这次更新涉及 4 个弹幕脚本模块和 3 个弹幕配置文件，另新增一个 uosc 控制栏配置文件。`mpv.conf`、`input_uosc.conf`、字体、快捷键及其他脚本均未改动：
 
 - portable_config/scripts/uosc_danmaku/modules/menu.lua
 - portable_config/scripts/uosc_danmaku/modules/parse.lua
 - portable_config/scripts/uosc_danmaku/modules/options.lua
 - portable_config/scripts/uosc_danmaku/modules/style.lua
 - portable_config/script-opts/uosc_danmaku.conf
+- portable_config/script-opts/uosc_danmaku_style.json（新增：样式持久化默认值，字体族设为 Source Han Sans）
 - portable_config/script-opts/uosc.conf（新增：仅控制 uosc 控制栏排列）
 
 ## 菜单入口
@@ -28,7 +29,7 @@ E:\mpv-lazy\mpv-lazy\\
 8. 管理屏蔽词规则：在菜单顶部搜索栏输入规则并回车添加；每条规则右侧的删除动作可移除该规则。
 9. 保存当前样式和过滤设置 / 清除已保存的样式和过滤设置。
 
-字体、透明度、描边和显示范围等外观选项仍在「弹幕样式」中；弹幕密度、合并和屏蔽词设置位于「弹幕密度与过滤」菜单。「粗体」有 `false`、`true` 和 `Big` 三档，`Big` 会请求 ASS 的 900 字重；但很多字体会把多个字重映射到同一字形，所以不保证一定比 `true` 更粗。若差异不明显，需要选择本机实际安装的更粗字重字体。
+仓库附带的 `uosc_danmaku_style.json` 会覆盖 `uosc_danmaku.conf` 中同名的样式项，因此请连同该 JSON 一起覆盖到本机配置目录；其中字体族使用系统已安装的 `Source Han Sans`，避免旧 JSON 中的 `SimHei` 覆盖配置。字体、透明度、描边和显示范围等外观选项仍在「弹幕样式」中；弹幕密度、合并和屏蔽词设置位于「弹幕密度与过滤」菜单。「粗体」有 `false`、`true` 和 `Big` 三档，`Big` 会请求 ASS 的 900 字重；但很多字体会把多个字重映射到同一字形，所以不保证一定比 `true` 更粗。若差异不明显，需要选择本机实际安装的更粗字重字体。
 
 
 ## 布局说明
