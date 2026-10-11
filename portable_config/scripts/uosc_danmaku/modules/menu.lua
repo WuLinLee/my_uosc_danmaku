@@ -1264,84 +1264,7 @@ function open_delay_menu(source, status)
     end
 end
 
--- 弹幕密度与过滤设置：把插件已有的密度、去重、同屏上限和屏蔽词能力集中到可见菜单。
-local filter_value_config = {
-    density = { title = "智能弹幕密度", min = 0, max = 100, integer = true,
-        footnote = "输入 0-100；100 不进行智能密度筛选，数值越低筛选越积极" },
-    row_spacing = { title = "弹幕行间距", min = 1.0, max = 2.0, integer = false, decimals = 1,
-        footnote = "输入 1.0-2.0；1.0 为原始间距，1.2 约增加 20% 行间距" },
-    merge_tolerance = { title = "重复弹幕合并间隔", min = -1, max = 30, integer = false,
-        footnote = "单位秒：-1 关闭合并，0 只合并同一时间点，正数为合并时间窗口；同屏上限开启时原逻辑可能改用滚动时长" },
-    max_screen_danmaku = { title = "同屏弹幕上限", min = 0, max = 500, integer = true,
-        footnote = "输入 0-500；0 表示不限制同时显示的弹幕数" },
-}
-local filter_menu_order = {
-    "density", "row_spacing", "balanced_lanes", "merge_tolerance", "max_screen_danmaku",
-    "merge_without_style", "blacklist_enabled", "blacklist_manager",
-    "save_defaults", "clear_defaults",
-}
-
-local function filter_current_value(key)
-    if key == "density" then return tostring(tonumber(options.density) or 100) .. " / 100" end
-    if key == "row_spacing" then return string.format("%.1fx", tonumber(options.row_spacing) or 1.2) end
-    if key == "balanced_lanes" then return options.balanced_lanes ~= false and "开启（均匀分布）" or "关闭（从上往下填充）" end
-    if key == "merge_tolerance" then
-        local value = tonumber(options.merge_tolerance) or -1
-        if value < 0 then return "关闭" end
-        return tostring(value) .. " 秒"
-    end
-    if key == "max_screen_danmaku" then
-        local value = tonumber(options.max_screen_danmaku) or 0
-        return value == 0 and "不限制" or tostring(value) .. " 条"
-    end
-    if key == "merge_without_style" then return options.merge_without_style and "开启" or "关闭" end
-    if key == "blacklist_enabled" then return options.blacklist_enabled ~= false and "开启" or "关闭" end
-    return ""
-end
-
-local function refresh_after_filter_change()
-    local refreshed_live = false
-    if refresh_live_danmaku_style then
-        local ok, result = pcall(refresh_live_danmaku_style)
-        refreshed_live = ok and result == true
-    end
-    if not refreshed_live and load_danmaku then
-        load_danmaku(true, true)
-    end
-end
-
-local function open_filter_value_editor(key)
-    local config = filter_value_config[key]
-    if not config then return end
-    local current = tostring(options[key] or "")
-    if uosc_available then
-        local props = {
-            type = "menu_filter_edit",
-            title = config.title .. "（当前：" .. current .. "）",
-            footnote = config.footnote,
-            search_style = "palette",
-            search_debounce = "submit",
-            search_suggestion = current,
-            on_search = { "script-message-to", mp.get_script_name(), "set-danmaku-filter-value", key },
-            items = {{ title = config.footnote, italic = true, selectable = false }},
-        }
-        mp.commandv("script-message-to", "uosc", "open-menu", utils.format_json(props))
-    elseif input_loaded then
-        input.get({
-            prompt = config.title .. "（当前 " .. current .. "；" .. config.footnote .. "）: ",
-            default_text = current,
-            submit = function(text)
-                input.terminate()
-                mp.commandv("script-message-to", mp.get_script_name(), "set-danmaku-filter-value", key, text)
-            end,
-            closed = function() input.terminate() end,
-        })
-    else
-        show_message("当前没有可用的弹幕设置界面", 3)
-    end
-end
-
-local function read_managed_blacklist()
+read_managed_blacklist = function()
     local configured = tostring(options.blacklist_menu_path or "~~/script-opts/uosc_danmaku_blacklist.txt")
     local ok, path = pcall(mp.command_native, { "expand-path", configured })
     if not ok or type(path) ~= "string" or path == "" then path = nil end
@@ -1365,11 +1288,11 @@ local function write_managed_blacklist(entries)
     if #entries > 0 then file:write(table.concat(entries, "\n"), "\n") end
     file:close()
     if reload_danmaku_blacklist then reload_danmaku_blacklist() end
-    refresh_after_filter_change()
+    refresh_style_setting()
     return true
 end
 
-local function open_managed_blacklist_menu()
+open_managed_blacklist_menu = function()
     local entries = read_managed_blacklist()
     local items = {{
         title = "添加规则：在上方搜索框输入内容并回车",
@@ -1439,82 +1362,8 @@ local function open_managed_blacklist_menu()
 end
 
 function open_danmaku_filter_menu()
-    if not uosc_available and not input_loaded then
-        show_message("当前没有可用的弹幕设置界面", 3)
-        return
-    end
-    local items = {}
-    local labels = {
-        density = "智能弹幕密度",
-        row_spacing = "弹幕行间距",
-        balanced_lanes = "均匀分布弹幕轨道",
-        merge_tolerance = "重复弹幕合并间隔",
-        max_screen_danmaku = "同屏弹幕上限",
-        merge_without_style = "跨颜色/类型合并重复弹幕",
-        blacklist_enabled = "屏蔽词过滤",
-        blacklist_manager = "管理屏蔽词规则",
-        save_defaults = "保存当前样式和过滤设置",
-        clear_defaults = "清除已保存的样式和过滤设置",
-    }
-    for index, key in ipairs(filter_menu_order) do
-        local hint
-        if filter_value_config[key] then
-            hint = "当前：" .. filter_current_value(key)
-        elseif key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
-            hint = "当前：" .. filter_current_value(key)
-        elseif key == "blacklist_manager" then
-            local entries = read_managed_blacklist()
-            hint = "管理菜单维护的屏蔽词（" .. tostring(#entries) .. " 条）"
-        elseif key == "save_defaults" then
-            hint = "保存到跨进程默认配置"
-        elseif key == "clear_defaults" then
-            hint = "删除已保存的默认配置"
-        end
-        items[#items + 1] = { title = labels[key], hint = hint, value = key, keep_open = true, selectable = true }
-    end
-    local props = {
-        type = "menu_danmaku_filter",
-        title = "弹幕密度与过滤",
-        footnote = "点击数值项修改；设置需通过保存项记为跨进程默认",
-        search_style = "disabled",
-        callback = { mp.get_script_name(), "handle-danmaku-filter-menu" },
-        items = items,
-    }
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "open-menu", utils.format_json(props))
-    else
-        local titles = {}
-        for i, item in ipairs(items) do titles[i] = item.title .. "（" .. tostring(item.hint or "") .. "）" end
-        input.select({
-            prompt = "弹幕密度与过滤：",
-            items = titles,
-            submit = function(id)
-                local key = filter_menu_order[id]
-                if not key then return end
-                if filter_value_config[key] then
-                    open_filter_value_editor(key)
-                elseif key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
-                    options[key] = not options[key]
-                    refresh_after_filter_change()
-                    open_danmaku_filter_menu()
-                elseif key == "blacklist_manager" then
-                    open_managed_blacklist_menu()
-                elseif key == "save_defaults" then
-                    local ok, detail = save_danmaku_style_defaults()
-                    show_message(ok and "已保存样式和过滤设置" or tostring(detail), ok and 2 or 4)
-                    open_danmaku_filter_menu()
-                elseif key == "clear_defaults" then
-                    local ok, detail = clear_danmaku_style_defaults()
-                    show_message(ok and "已清除已保存的默认设置" or tostring(detail), ok and 2 or 4)
-                    open_danmaku_filter_menu()
-                end
-            end,
-        })
-    end
-end
-
-local function open_danmaku_filter_menu_refresh()
-    open_danmaku_filter_menu()
+    -- Keep the legacy script message name, but show the unified style menu.
+    open_style_menu()
 end
 
 -- 总集合弹幕菜单
@@ -1523,7 +1372,6 @@ local total_menu_items_config = {
     { title = "从源添加弹幕", action = "open_add_source_menu" },
     { title = "弹幕源延迟设置", action = "open_source_delay_menu" },
     { title = "弹幕样式", action = "open_danmaku_style_menu" },
-    { title = "弹幕密度与过滤", action = "open_danmaku_filter_menu" },
     { title = "弹幕内容", action = "open_content_danmaku_menu" },
 }
 
@@ -1763,160 +1611,118 @@ end)
 
 mp.register_script_message("setup-danmaku-style", function(query, text)
     local event = utils.parse_json(query)
-    if event ~= nil then
-        -- item点击 或 图标点击
-        if event.type == "activate" then
-            local item_key = event.value or (event.action and event.action) or ordered_keys[event.index]
-            if event.action == "save-style-default" or item_key == "save-style-default"
-                or (not event.action and event.index == #ordered_keys + 1) then
-                local ok, detail = save_danmaku_style_defaults()
-                show_message(ok and "已保存当前样式为跨进程默认" or tostring(detail), ok and 2 or 4)
-                open_style_menu()
-                return
-            elseif event.action == "clear-style-default" or item_key == "clear-style-default"
-                or (not event.action and event.index == #ordered_keys + 2) then
-                local ok, detail = clear_danmaku_style_defaults()
-                show_message(ok and "已清除保存样式" or tostring(detail), ok and 2 or 4)
-                open_style_menu()
-                return
-            end
-            if not event.action then
-                local selected_key = item_key
-                if selected_key == "bold" then
-                    set_bold_mode("cycle")
-                elseif selected_key == "live_fps_mode" then
-                    local choices = menu_items_config.live_fps_mode.choices
-                    local current = tostring(options.live_fps_mode)
-                    local next_index = 1
-                    for index, mode in ipairs(choices) do
-                        if mode == current then
-                            next_index = index % #choices + 1
-                            break
-                        end
-                    end
-                    set_live_fps_mode(choices[next_index])
-                    menu_items_config.live_fps_mode.hint = options.live_fps_mode
-                end
-                -- "updata" 模式会保留输入框文字
-                open_style_menu(selected_key, "updata")
-                return
-            else
-                -- msg.info("event.action：" .. event.action)
-                if event.action == "bold" then
-                    options.bold = menu_items_config.bold.original_bold
-                    options.bold_mode = menu_items_config.bold.original_mode
-                    menu_items_config.bold.hint = bold_mode_label()
-                    refresh_after_bold_change()
-                elseif event.action == "live_fps_mode" then
-                    set_live_fps_mode(menu_items_config[event.action]["original"])
-                    menu_items_config[event.action]["hint"] = options[event.action]
-                else
-                    options[event.action] = menu_items_config[event.action]["original"]
-                    menu_items_config[event.action]["hint"] = options[event.action]
-                end
-                open_style_menu(event.action, "updata")
-                if event.action ~= "bold" and not refresh_live_danmaku_style() and (event.action == "fontsize" or event.action == "scrolltime" or event.action == "displayarea" or event.action == "density") then
-                    load_danmaku(true)
-                end
-            end
-        end
-    else
-        -- 数值输入
-        if text == nil or text == "" then
+    if type(event) == "table" and event.type == "activate" then
+        local key = event.action or event.value or ordered_keys[event.index]
+        if key == "save-style-default" or (not event.action and event.index == #ordered_keys + 1) then
+            local ok, detail = save_danmaku_style_defaults()
+            show_message(ok and "已保存当前样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
+            open_style_menu()
+            return
+        elseif key == "clear-style-default" or (not event.action and event.index == #ordered_keys + 2) then
+            local ok, detail = clear_danmaku_style_defaults()
+            show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
+            open_style_menu()
             return
         end
-        local newText, _ = text:gsub("%s", "") -- 移除所有空白字符
-        if query == "bold" then
-            if set_bold_mode(text) then
-                open_style_menu(query, "refresh")
-                return
-            end
-        elseif menu_items_config[query] and menu_items_config[query].choices then
-            if set_live_fps_mode(newText) then
-                menu_items_config[query].hint = options[query]
-                open_style_menu(query, "refresh")
-                return
-            end
-        elseif tonumber(newText) ~= nil and menu_items_config[query]["scope"] ~= nil then
-            local num = tonumber(newText)
-            local min_num = menu_items_config[query]["scope"]["min"]
-            local max_num = menu_items_config[query]["scope"]["max"]
-            if num and min_num <= num and num <= max_num then
-                if string.match(menu_items_config[query]["footnote"], "整数") then
-                    -- 输入范围为整数时向下取整
-                    num = tostring(math.floor(num))
+
+        if event.action then
+            local config = menu_items_config[event.action]
+            if config and event.action ~= "blacklist_manager" then
+                if event.action == "live_fps_mode" then
+                    set_live_fps_mode(config.original)
+                else
+                    options[event.action] = config.original
                 end
-                options[query] = tostring(num)
-                menu_items_config[query]["hint"] = options[query]
-                -- "refresh" 模式会清除输入框文字
-                open_style_menu(query, "refresh")
-                if not refresh_live_danmaku_style() and (query == "fontsize" or query == "scrolltime" or query == "displayarea") then
-                    load_danmaku(true, true)
-                end
-                return
+                refresh_style_hints()
+                refresh_style_setting()
+                open_style_menu(event.action, "refresh")
             end
+            return
         end
-        open_style_menu(query, "error")
+
+        if key == "blacklist_manager" then
+            if open_managed_blacklist_menu then open_managed_blacklist_menu() end
+        elseif key == "bold" then
+            set_bold_value("toggle")
+            open_style_menu(key, "refresh")
+        elseif key == "live_fps_mode" then
+            local choices = menu_items_config.live_fps_mode.choices
+            local current = tostring(options.live_fps_mode)
+            local next_index = 1
+            for index, mode in ipairs(choices) do
+                if mode == current then next_index = index % #choices + 1; break end
+            end
+            set_live_fps_mode(choices[next_index])
+            refresh_style_hints()
+            open_style_menu(key, "refresh")
+        elseif menu_items_config[key] and menu_items_config[key].toggle then
+            set_boolean_setting(key, "toggle")
+            open_style_menu(key, "refresh")
+        elseif menu_items_config[key] then
+            open_style_menu(key, "updata")
+        end
+        return
+    end
+
+    local key = tostring(query or "")
+    local config = menu_items_config[key]
+    if not config then return end
+    local value = tostring(text or ""):gsub("^%s*(.-)%s*$", "%1")
+    if value == "" then return end
+
+    if key == "blacklist_manager" then
+        if open_managed_blacklist_menu then open_managed_blacklist_menu() end
+        return
+    elseif key == "bold" then
+        if set_bold_value(value) then open_style_menu(key, "refresh")
+        else open_style_menu(key, "error") end
+        return
+    elseif config.toggle then
+        if set_boolean_setting(key, value) then open_style_menu(key, "refresh")
+        else open_style_menu(key, "error") end
+        return
+    elseif config.choices then
+        local normalized = value:lower()
+        local found = false
+        for _, choice in ipairs(config.choices) do
+            if choice == normalized then found = true; break end
+        end
+        if found and set_live_fps_mode(normalized) then
+            refresh_style_hints()
+            open_style_menu(key, "refresh")
+        else
+            open_style_menu(key, "error")
+        end
+        return
+    elseif config.scope then
+        local number = tonumber(value)
+        if not number or number < config.scope.min or number > config.scope.max then
+            open_style_menu(key, "error")
+            return
+        end
+        if config.integer then
+            number = math.floor(number)
+        else
+            local decimals = tonumber(config.decimals) or 1
+            local scale = math.pow(10, decimals)
+            number = math.floor(number * scale + 0.5) / scale
+        end
+        options[key] = number
+        refresh_style_hints()
+        refresh_style_setting()
+        open_style_menu(key, "refresh")
+    else
+        open_style_menu(key, "error")
     end
 end)
 
 mp.register_script_message("set-danmaku-bold", function(value)
-    if set_bold_mode(value) then
-        open_style_menu("bold", "refresh")
-    else
-        open_style_menu("bold", "error")
-    end
+    if set_bold_value(value) then open_style_menu("bold", "refresh")
+    else open_style_menu("bold", "error") end
 end)
 
 mp.register_script_message("open_danmaku_filter_menu", function()
     open_danmaku_filter_menu()
-end)
-
-mp.register_script_message("handle-danmaku-filter-menu", function(json)
-    local event = utils.parse_json(json)
-    if not event or event.type ~= "activate" then return end
-    local key = event.action or event.value or filter_menu_order[event.index]
-    if not key then return end
-
-    if filter_value_config[key] then
-        open_filter_value_editor(key)
-    elseif key == "merge_without_style" or key == "blacklist_enabled" or key == "balanced_lanes" then
-        options[key] = not options[key]
-        refresh_after_filter_change()
-        open_danmaku_filter_menu_refresh()
-    elseif key == "blacklist_manager" then
-        open_managed_blacklist_menu()
-    elseif key == "save_defaults" then
-        local ok, detail = save_danmaku_style_defaults()
-        show_message(ok and "已保存样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
-        open_danmaku_filter_menu_refresh()
-    elseif key == "clear_defaults" then
-        local ok, detail = clear_danmaku_style_defaults()
-        show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
-        open_danmaku_filter_menu_refresh()
-    end
-end)
-
-mp.register_script_message("set-danmaku-filter-value", function(key, text)
-    local config = filter_value_config[key]
-    if not config or text == nil or tostring(text):match("^%s*$") then return end
-    local value = tonumber(text)
-    if not value or value < config.min or value > config.max then
-        show_message(config.title .. "超出范围：" .. tostring(config.min) .. " 至 " .. tostring(config.max), 3)
-        open_filter_value_editor(key)
-        return
-    end
-    if config.integer then
-        value = math.floor(value)
-    else
-        local decimals = tonumber(config.decimals) or 1
-        local scale = math.pow(10, decimals)
-        value = math.floor(value * scale + 0.5) / scale
-    end
-    options[key] = value
-    refresh_after_filter_change()
-    show_message(config.title .. "已设为 " .. tostring(value), 2)
-    open_danmaku_filter_menu_refresh()
 end)
 
 mp.register_script_message("add-danmaku-blacklist-entry", function(pattern)
