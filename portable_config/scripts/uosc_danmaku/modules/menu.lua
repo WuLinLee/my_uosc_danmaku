@@ -933,6 +933,7 @@ function open_style_menu_uosc(actived, status)
         local item_config = {
             title = config.title,
             hint = "目前：" .. tostring(config.hint),
+            value = key,
             active = key == actived,
             keep_open = true,
             selectable = true,
@@ -946,6 +947,7 @@ function open_style_menu_uosc(actived, status)
     table.insert(items, {
         title = "保存当前样式",
         hint = "设为跨进程默认",
+        value = "save-style-default",
         icon = "save",
         keep_open = true,
         selectable = true,
@@ -953,6 +955,7 @@ function open_style_menu_uosc(actived, status)
     table.insert(items, {
         title = "清除已保存样式",
         hint = "恢复脚本默认值",
+        value = "clear-style-default",
         icon = "delete",
         keep_open = true,
         selectable = true,
@@ -1765,23 +1768,25 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
     if event ~= nil then
         -- item点击 或 图标点击
         if event.type == "activate" then
-            if event.action == "save-style-default" or (not event.action and event.index == #ordered_keys + 1) then
-                if save_danmaku_style_defaults() then
-                    show_message("已保存当前样式为跨进程默认", 2)
-                end
+            local item_key = event.value or (event.action and event.action) or ordered_keys[event.index]
+            if event.action == "save-style-default" or item_key == "save-style-default"
+                or (not event.action and event.index == #ordered_keys + 1) then
+                local ok, detail = save_danmaku_style_defaults()
+                show_message(ok and "已保存当前样式为跨进程默认" or tostring(detail), ok and 2 or 4)
                 open_style_menu()
                 return
-            elseif event.action == "clear-style-default" or (not event.action and event.index == #ordered_keys + 2) then
-                if clear_danmaku_style_defaults() then
-                    show_message("已清除保存样式", 2)
-                end
+            elseif event.action == "clear-style-default" or item_key == "clear-style-default"
+                or (not event.action and event.index == #ordered_keys + 2) then
+                local ok, detail = clear_danmaku_style_defaults()
+                show_message(ok and "已清除保存样式" or tostring(detail), ok and 2 or 4)
                 open_style_menu()
                 return
             end
             if not event.action then
-                if ordered_keys[event.index] == "bold" then
+                local selected_key = item_key
+                if selected_key == "bold" then
                     set_bold_mode("cycle")
-                elseif ordered_keys[event.index] == "live_fps_mode" then
+                elseif selected_key == "live_fps_mode" then
                     local choices = menu_items_config.live_fps_mode.choices
                     local current = tostring(options.live_fps_mode)
                     local next_index = 1
@@ -1795,7 +1800,7 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
                     menu_items_config.live_fps_mode.hint = options.live_fps_mode
                 end
                 -- "updata" 模式会保留输入框文字
-                open_style_menu(ordered_keys[event.index], "updata")
+                open_style_menu(selected_key, "updata")
                 return
             else
                 -- msg.info("event.action：" .. event.action)
