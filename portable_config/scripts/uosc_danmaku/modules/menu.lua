@@ -1612,19 +1612,26 @@ end)
 mp.register_script_message("setup-danmaku-style", function(query, text)
     local event = utils.parse_json(query)
     if type(event) == "table" and event.type == "activate" then
-        local key = event.action or event.value or ordered_keys[event.index]
-        if key == "save-style-default" or (not event.action and event.index == #ordered_keys + 1) then
+        -- 先按保存/清除项自身的唯一 value 识别，避免 event.action 或选中索引
+        -- 被 uosc 的重置按钮事件影响时，误落到首项粗体开关。
+        local item_value = event.value
+        local item_index = tonumber(event.index)
+        if item_value == "save-style-default" or
+            (item_index == #ordered_keys + 1 and (item_value == nil or item_value == "")) then
             local ok, detail = save_danmaku_style_defaults()
             show_message(ok and "已保存当前样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
-        elseif key == "clear-style-default" or (not event.action and event.index == #ordered_keys + 2) then
+        elseif item_value == "clear-style-default" or
+            (item_index == #ordered_keys + 2 and (item_value == nil or item_value == "")) then
             local ok, detail = clear_danmaku_style_defaults()
             show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
         end
 
+        -- 只有确实来自设置项的 action 才执行“恢复默认值”；
+        -- 未知 action 直接忽略，绝不能回退成 ordered_keys[1]（粗体）。
         if event.action then
             if event.action == "blacklist_manager" then
                 if open_managed_blacklist_menu then open_managed_blacklist_menu() end
@@ -1644,6 +1651,12 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
             return
         end
 
+        local key = nil
+        if type(item_value) == "string" and menu_items_config[item_value] then
+            key = item_value
+        elseif item_index then
+            key = ordered_keys[item_index]
+        end
         if key == "blacklist_manager" then
             if open_managed_blacklist_menu then open_managed_blacklist_menu() end
         elseif key == "bold" then
