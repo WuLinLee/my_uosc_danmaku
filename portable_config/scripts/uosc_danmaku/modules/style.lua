@@ -137,7 +137,7 @@ function save_danmaku_style_defaults()
         scrolltime = 15,
         opacity = 0.7,
         displayarea = 0.85,
-        density = 100,
+        density = 50,
         row_spacing = 1.2,
         balanced_lanes = true,
         merge_tolerance = -1,
