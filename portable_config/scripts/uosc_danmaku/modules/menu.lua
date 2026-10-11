@@ -1616,14 +1616,12 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
         -- 被 uosc 的重置按钮事件影响时，误落到首项粗体开关。
         local item_value = event.value
         local item_index = tonumber(event.index)
-        if item_value == "save-style-default" or
-            (item_index == #ordered_keys + 1 and (item_value == nil or item_value == "")) then
+        if item_value == "save-style-default" or item_index == #ordered_keys + 1 then
             local ok, detail = save_danmaku_style_defaults()
             show_message(ok and "已保存当前样式和过滤设置为跨进程默认" or tostring(detail), ok and 2 or 4)
             open_style_menu()
             return
-        elseif item_value == "clear-style-default" or
-            (item_index == #ordered_keys + 2 and (item_value == nil or item_value == "")) then
+        elseif item_value == "clear-style-default" or item_index == #ordered_keys + 2 then
             local ok, detail = clear_danmaku_style_defaults()
             show_message(ok and "已清除已保存的样式和过滤设置" or tostring(detail), ok and 2 or 4)
             open_style_menu()
