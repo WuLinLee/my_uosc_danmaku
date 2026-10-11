@@ -51,8 +51,9 @@ options = {
     fontsize = 50,
     --字体阴影
     shadow = 0,
-    --字体粗体
+    --字体粗体：沿用原有 true/false；bold_mode=big 时请求 ASS 900 字重
     bold = true,
+    bold_mode = "auto", -- auto / big
     -- 透明度：0（完全透明）到 1（不透明）
     opacity = 0.7,
     --全部弹幕的显示范围(0.0-1.0)
