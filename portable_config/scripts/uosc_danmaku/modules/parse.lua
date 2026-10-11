@@ -971,8 +971,12 @@ function convert_danmaku_to_ass_events(force)
         local appear_time = ev.start_time
         local danmaku_type = d.type
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
+        local is_big_bold = tostring(options.bold_mode or "auto"):lower() == "big"
+        local bold_count_tag = is_big_bold and "\\b900" or "\\b1"
         local text = ass_escape(clean_text)
-                    :gsub("x(%d+)$", "{\\b1\\i1}x%1")
+                    :gsub("x(%d+)$", function(count)
+                        return "{" .. bold_count_tag .. "\\i1}x" .. count
+                    end)
 
         -- 颜色从十进制转为 BGR Hex
         local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
@@ -1019,7 +1023,7 @@ function convert_danmaku_to_ass_events(force)
         end
 
         if style and effect then
-            text = effect .. color_text .. text
+            text = effect .. color_text .. (is_big_bold and "{\\b900}" or "") .. text
             local event = {
                 orig_time = ev.orig_time,
                 start_time = ev.start_time,
@@ -1063,6 +1067,7 @@ function build_live_ass_events(danmakus)
         if type(d.time) == "number" and type(d.text) == "string" then
             local clean_text = ch_convert_cached(decode_html_entities(d.text))
             local text = ass_escape(clean_text)
+            local is_big_bold = tostring(options.bold_mode or "auto"):lower() == "big"
             local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
             local color_hex = string.format("%06X", color)
             local color_text = string.format("{\\c&H%s%s%s&}", color_hex:sub(5, 6), color_hex:sub(3, 4), color_hex:sub(1, 2))
@@ -1076,7 +1081,7 @@ function build_live_ass_events(danmakus)
                     end_time = d.time + scrolltime,
                     delay = 0,
                     style = "R2L",
-                    text = string.format("{\\move(%d,%d,%d,%d)}%s%s", x1, y, x2, y, color_text, text),
+                    text = string.format("{\\move(%d,%d,%d,%d)}%s%s%s", x1, y, x2, y, color_text, is_big_bold and "{\\b900}" or "", text),
                     clean_text = clean_text,
                     move = {x1, y, x2, y},
                     layer = 0,
