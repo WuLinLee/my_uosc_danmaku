@@ -950,24 +950,24 @@ function open_style_menu_uosc(actived, status)
         end
         table.insert(items, item_config)
     end
-    -- 底部只显示右侧动作按钮，整行不可激活，避免被误判为第一项粗体。
+    -- uosc 只会为当前选中/悬停的条目显示 actions，因此条目需要 selectable=true。
+    -- 行本身的 value 使用不会匹配任何设置项的哨兵值，点击文字/空白只会被忽略；
+    -- 只有右侧 save/delete action 会执行实际操作。
     table.insert(items, {
         title = "保存当前样式和过滤设置",
         hint = "设为跨进程默认",
         value = "style-default-save-row",
-        icon = "save",
         keep_open = true,
-        selectable = false,
-        actions = {{icon = "refresh", name = "save-style-default", label = "保存当前样式和过滤设置"}},
+        selectable = true,
+        actions = {{icon = "save", name = "save-style-default", label = "保存当前样式和过滤设置"}},
     })
     table.insert(items, {
         title = "清除已保存样式和过滤设置",
         hint = "恢复脚本默认值",
         value = "style-default-clear-row",
-        icon = "delete",
         keep_open = true,
-        selectable = false,
-        actions = {{icon = "refresh", name = "clear-style-default", label = "清除已保存样式和过滤设置"}},
+        selectable = true,
+        actions = {{icon = "delete", name = "clear-style-default", label = "清除已保存样式和过滤设置"}},
     })
 
     local menu_props = {
