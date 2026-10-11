@@ -50,7 +50,7 @@ E:\mpv-lazy\mpv-lazy\\
 
 ## 保留与兼容说明
 - 其他原有配置值保持不变。默认显示范围从 `displayarea=0.05` 调整为 `displayarea=0.85`；新增的配置项包括 `density=100`、`row_spacing=1.2`、`balanced_lanes=yes`、`blacklist_enabled=yes`、`blacklist_menu_path` 和 `merge_without_style=no`。
-- 已保存的 uosc_danmaku_style.json 现在可一并保存密度、行间距、均匀轨道开关、重复合并、同屏上限、跨样式合并和屏蔽词开关。
+- `保存当前样式和过滤设置` 会把字体、粗体、样式、密度、行间距、均匀轨道开关、重复合并、同屏上限、跨样式合并、屏蔽词开关和直播帧率统一写入 `~~/script-opts/uosc_danmaku_style.json`；启动时该 JSON 会覆盖 `.conf` 中的同名默认值，因此它是跨进程默认值的最终来源。保存失败时，菜单会显示具体字段或文件路径错误。
 - 当同屏上限大于 0、合并间隔小于或等于 0 时，排版阶段仍按原有逻辑使用滚动时长作为实际合并窗口；菜单里显示的合并间隔不会因此被改写。
 - 智能密度算法是对浏览器版思路的 LuaJIT 兼容适配，不是完整 Unicode NFKC 的逐字节等价移植。
 
