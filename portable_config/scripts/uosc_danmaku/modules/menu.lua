@@ -728,7 +728,7 @@ end
 local menu_items_config = {
     bold = { title = "粗体", hint = bold_mode_label(), original = bold_mode_label(),
         original_bold = options.bold, original_mode = tostring(options.bold_mode or "auto"):lower(),
-        choices = {"false", "true", "Big"}, footnote = "Big 请求 ASS 900 字重；必要时用同色边缘补强", },
+        choices = {"false", "true", "Big"}, footnote = "Big 请求 ASS 900 字重；效果取决于字体是否提供更重字形", }
     fontsize = { title = "大小", hint = options.fontsize, original = options.fontsize,
         scope = { min = 0, max = math.huge }, footnote = "请输入整数(>=0)", },
     outline = { title = "描边", hint = options.outline, original = options.outline,
