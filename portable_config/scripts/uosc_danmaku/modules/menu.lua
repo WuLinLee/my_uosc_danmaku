@@ -720,9 +720,15 @@ function open_content_menu(pos)
     end
 end
 
+local function bold_mode_label()
+    if tostring(options.bold_mode or "auto"):lower() == "big" then return "Big" end
+    return options.bold and "true" or "false"
+end
+
 local menu_items_config = {
-    bold = { title = "粗体", hint = options.bold, original = options.bold,
-        footnote = "true / false", },
+    bold = { title = "粗体", hint = bold_mode_label(), original = bold_mode_label(),
+        original_bold = options.bold, original_mode = tostring(options.bold_mode or "auto"):lower(),
+        choices = {"false", "true", "Big"}, footnote = "选择 false / true / Big；Big 请求 ASS 900 字重", },
     fontsize = { title = "大小", hint = options.fontsize, original = options.fontsize,
         scope = { min = 0, max = math.huge }, footnote = "请输入整数(>=0)", },
     outline = { title = "描边", hint = options.outline, original = options.outline,
@@ -740,6 +746,42 @@ local menu_items_config = {
 }
 -- 创建一个包含键顺序的表，这是样式菜单的排布顺序
 local ordered_keys = {"bold", "fontsize", "outline", "shadow", "scrolltime", "opacity", "displayarea", "live_fps_mode"}
+
+local function refresh_after_bold_change()
+    -- Big changes the ASS override tag. Rebuild the current danmaku so the ASS track is refreshed.
+    if load_danmaku then
+        pcall(load_danmaku, true, true)
+    elseif refresh_live_danmaku_style then
+        pcall(refresh_live_danmaku_style)
+    end
+end
+
+local function set_bold_mode(value)
+    value = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local normalized = value:lower()
+    if normalized == "y" or normalized == "cycle" then
+        local current = bold_mode_label()
+        normalized = current == "false" and "true" or current == "true" and "big" or "false"
+    end
+
+    if normalized == "false" or normalized == "no" or normalized == "off" or normalized == "0" then
+        options.bold = false
+        options.bold_mode = "auto"
+    elseif normalized == "true" or normalized == "yes" or normalized == "on" or normalized == "1" then
+        options.bold = true
+        options.bold_mode = "auto"
+    elseif normalized == "big" then
+        -- Runtime sentinel changes render.lua's existing signature even though it only knows bool bold.
+        options.bold = "Big"
+        options.bold_mode = "big"
+    else
+        return false
+    end
+
+    menu_items_config.bold.hint = bold_mode_label()
+    refresh_after_bold_change()
+    return true
+end
 
 -- 设置弹幕样式菜单
 function open_style_menu_get(query, indicator)
@@ -802,7 +844,9 @@ function open_style_menu_get(query, indicator)
             input_text = string.format("已输入%s: %s", suffix, input_text)
 
             local scope = config and config.footnote or ""
-            local hint_text = select_query == "bold" and "提示: 输入【y】切换状态" or "提示: " .. scope
+            local hint_text = select_query == "bold"
+                and "提示: 输入 y 循环 false / true / Big，也可直接输入值"
+                or "提示: " .. scope
             local hint_style = "{\\c&H999999&}"
             if source and source:lower() == "\\r" then
                 hint_text = string.format("提示: 回车将恢复默认配置 < %s >", config.original)
@@ -869,10 +913,9 @@ function open_style_menu_get(query, indicator)
                 if menu_items_config[select_query]["scope"] ~= nil then
                     input.terminate()
                     mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
-                elseif text:lower() == "y" and select_query == "bold" then
+                elseif select_query == "bold" then
                     input.terminate()
-                    local args = string.format('{"type":"activate","index":%d}', select_num)
-                    mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", args)
+                    mp.commandv("script-message-to", mp.get_script_name(), "set-danmaku-bold", text)
                 elseif menu_items_config[select_query].choices then
                     input.terminate()
                     mp.commandv("script-message-to", mp.get_script_name(), "setup-danmaku-style", select_query, text)
@@ -1737,9 +1780,7 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
             end
             if not event.action then
                 if ordered_keys[event.index] == "bold" then
-                    options.bold = not options.bold
-                    menu_items_config.bold.hint = options.bold and "true" or "false"
-                    refresh_live_danmaku_style()
+                    set_bold_mode("cycle")
                 elseif ordered_keys[event.index] == "live_fps_mode" then
                     local choices = menu_items_config.live_fps_mode.choices
                     local current = tostring(options.live_fps_mode)
@@ -1758,14 +1799,20 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
                 return
             else
                 -- msg.info("event.action：" .. event.action)
-                if event.action == "live_fps_mode" then
+                if event.action == "bold" then
+                    options.bold = menu_items_config.bold.original_bold
+                    options.bold_mode = menu_items_config.bold.original_mode
+                    menu_items_config.bold.hint = bold_mode_label()
+                    refresh_after_bold_change()
+                elseif event.action == "live_fps_mode" then
                     set_live_fps_mode(menu_items_config[event.action]["original"])
+                    menu_items_config[event.action]["hint"] = options[event.action]
                 else
                     options[event.action] = menu_items_config[event.action]["original"]
+                    menu_items_config[event.action]["hint"] = options[event.action]
                 end
-                menu_items_config[event.action]["hint"] = options[event.action]
                 open_style_menu(event.action, "updata")
-                if not refresh_live_danmaku_style() and (event.action == "fontsize" or event.action == "scrolltime" or event.action == "displayarea" or event.action == "density") then
+                if event.action ~= "bold" and not refresh_live_danmaku_style() and (event.action == "fontsize" or event.action == "scrolltime" or event.action == "displayarea" or event.action == "density") then
                     load_danmaku(true)
                 end
             end
@@ -1776,7 +1823,12 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
             return
         end
         local newText, _ = text:gsub("%s", "") -- 移除所有空白字符
-        if menu_items_config[query] and menu_items_config[query].choices then
+        if query == "bold" then
+            if set_bold_mode(text) then
+                open_style_menu(query, "refresh")
+                return
+            end
+        elseif menu_items_config[query] and menu_items_config[query].choices then
             if set_live_fps_mode(newText) then
                 menu_items_config[query].hint = options[query]
                 open_style_menu(query, "refresh")
@@ -1802,6 +1854,14 @@ mp.register_script_message("setup-danmaku-style", function(query, text)
             end
         end
         open_style_menu(query, "error")
+    end
+end)
+
+mp.register_script_message("set-danmaku-bold", function(value)
+    if set_bold_mode(value) then
+        open_style_menu("bold", "refresh")
+    else
+        open_style_menu("bold", "error")
     end
 end)
 
