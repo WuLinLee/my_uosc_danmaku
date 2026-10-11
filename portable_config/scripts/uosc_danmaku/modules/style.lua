@@ -25,6 +25,14 @@ local STYLE_KEYS = {
     "live_fps_mode",
 }
 
+-- Capture the effective defaults after mp.options has loaded the user's .conf,
+-- but before the cross-process JSON file overrides them. Clearing saved defaults
+-- should return to these values in the current process as well.
+local STYLE_BASE_DEFAULTS = {}
+for _, key in ipairs(STYLE_KEYS) do
+    STYLE_BASE_DEFAULTS[key] = options[key]
+end
+
 local LIVE_FPS_MODES = {
     auto = true,
     ["60"] = true,
@@ -199,6 +207,7 @@ function clear_danmaku_style_defaults()
         publish_style_state("clear-error")
         return false, err
     end
+
     local exists = io.open(path, "r")
     if exists then
         exists:close()
@@ -210,7 +219,30 @@ function clear_danmaku_style_defaults()
             return false, message
         end
     end
+
+    -- Clearing is also an immediate runtime reset, not just a file deletion.
+    for _, key in ipairs(STYLE_KEYS) do
+        if STYLE_BASE_DEFAULTS[key] ~= nil then
+            options[key] = STYLE_BASE_DEFAULTS[key]
+        end
+    end
+
     publish_style_state("cleared")
+
+    -- Update external FPS/filter state and redraw currently visible danmaku.
+    if sync_smooth_fps_filter then
+        pcall(sync_smooth_fps_filter)
+    end
+    local refreshed_live = false
+    if refresh_live_danmaku_style then
+        local ok, result = pcall(refresh_live_danmaku_style)
+        refreshed_live = ok and result == true
+    end
+    if not refreshed_live and load_danmaku then
+        pcall(load_danmaku, true, true)
+    end
+
+    msg.info("danmaku style defaults cleared and runtime style reset to base options: " .. path)
     return true, path
 end
 
@@ -243,7 +275,7 @@ end)
 mp.register_script_message("clear-danmaku-style-default", function()
     local ok, detail = clear_danmaku_style_defaults()
     if show_message then
-        show_message(ok and "已清除跨进程默认配置" or tostring(detail), ok and 2 or 4)
+        show_message(ok and "已清除跨进程默认配置，并恢复当前弹幕样式默认值" or tostring(detail), ok and 2 or 4)
     end
 end)
 mp.register_script_message("set-live-fps-mode", set_live_fps_mode)
