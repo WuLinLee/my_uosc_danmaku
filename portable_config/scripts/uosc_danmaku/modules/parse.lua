@@ -699,6 +699,17 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     return filtered
 end
 
+-- Inputs from common danmaku providers are usually ordered already.
+-- Keep the defensive sort for genuinely out-of-order XML/JSON input.
+local function sort_danmakus_if_needed(danmakus)
+    for i = 2, #danmakus do
+        if danmakus[i].time < danmakus[i - 1].time then
+            table.sort(danmakus, function(a, b) return a.time < b.time end)
+            return
+        end
+    end
+end
+
 -- 解析 XML 弹幕
 function parse_xml_danmaku(xml_string)
     local danmakus = {}
@@ -726,7 +737,7 @@ function parse_xml_danmaku(xml_string)
         end
     end
 
-    table.sort(danmakus, function(a, b) return a.time < b.time end)
+    sort_danmakus_if_needed(danmakus)
     return danmakus
 end
 
@@ -766,7 +777,7 @@ function parse_json_danmaku(json_string)
         end
     end
 
-    table.sort(danmakus, function(a, b) return a.time < b.time end)
+    sort_danmakus_if_needed(danmakus)
     return danmakus
 end
 
@@ -777,15 +788,10 @@ function parse_danmaku_file(danmaku_input)
     if file_exists(danmaku_input) then
         local content = read_file(danmaku_input)
         if content then
-            local parsed = {}
             if danmaku_input:match("%.xml$") then
-                parsed = parse_xml_danmaku(content)
+                danmakus = parse_xml_danmaku(content)
             elseif danmaku_input:match("%.json$") then
-                parsed = parse_json_danmaku(content)
-            end
-
-            for _, d in ipairs(parsed) do
-                table.insert(danmakus, d)
+                danmakus = parse_json_danmaku(content)
             end
         else
             msg.info("无法读取文件内容: " .. danmaku_input)
