@@ -651,7 +651,7 @@ function DanmakuArray:new(res_x, res_y, font_size, row_spacing)
         next_side = -1,
     }
     for i = 1, obj.rows do
-        obj.time_length_array[i] = { time = 0, length = 0, empty = true, scrolling_entries = {}, scrolling_head = 1 }
+        obj.time_length_array[i] = { time = 0, length = 0, empty = true }
     end
     setmetatable(obj, self)
     return obj
@@ -659,32 +659,7 @@ end
 
 function DanmakuArray:set_time_length(row, time, length)
     if row > 0 and row <= self.rows then
-        local state = self.time_length_array[row]
-        state.time = time
-        state.length = length
-        state.empty = false
-    end
-end
-
-function DanmakuArray:set_scrolling_time_length(row, time, length)
-    self:set_time_length(row, time, length)
-    if row > 0 and row <= self.rows then
-        local state = self.time_length_array[row]
-        local entries = state.scrolling_entries or {}
-        state.scrolling_entries = entries
-        state.scrolling_head = state.scrolling_head or 1
-        entries[#entries + 1] = { time = time, length = length }
-
-        -- Compact the queue occasionally so old, expired entries do not accumulate.
-        local head = state.scrolling_head
-        if head > 64 and head > #entries / 2 then
-            local compact = {}
-            for i = head, #entries do
-                compact[#compact + 1] = entries[i]
-            end
-            state.scrolling_entries = compact
-            state.scrolling_head = 1
-        end
+        self.time_length_array[row] = { time = time, length = length, empty = false }
     end
 end
 
@@ -709,11 +684,15 @@ function DanmakuArray:is_empty(row)
     return false
 end
 
-local function can_follow_scrolling_comment(previous_time, previous_length, appear_time, text_length, resolution_x, roll_time)
+local function can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array)
+    if array:is_empty(row) then return true end
+
+    local previous_appear_time = array:get_time(row)
+    local previous_length = array:get_length(row)
     local velocity = (text_length + resolution_x) / roll_time
     local previous_velocity = (previous_length + resolution_x) / roll_time
     local delta_velocity = velocity - previous_velocity
-    local delta_x = (appear_time - previous_time) * previous_velocity - previous_length
+    local delta_x = (appear_time - previous_appear_time) * previous_velocity - previous_length
 
     if delta_x >= 0 then
         if delta_velocity <= 0 then return true end
@@ -721,52 +700,6 @@ local function can_follow_scrolling_comment(previous_time, previous_length, appe
         if delta_time >= roll_time then return true end
     end
     return false
-end
-
-local function can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array)
-    local state = array.time_length_array[row]
-    if state.empty then return true end
-
-    local entries = state.scrolling_entries or {}
-    local head = state.scrolling_head or 1
-
-    -- Events are laid out in timestamp order. Discard comments that have fully
-    -- exited before checking collisions against every comment still on screen.
-    while head <= #entries and entries[head].time + roll_time <= appear_time do
-        head = head + 1
-    end
-    state.scrolling_head = head
-
-    if head > #entries then
-        state.scrolling_entries = {}
-        state.scrolling_head = 1
-        return true
-    end
-
-    for i = head, #entries do
-        local previous = entries[i]
-        if not can_follow_scrolling_comment(
-            previous.time, previous.length, appear_time, text_length, resolution_x, roll_time
-        ) then
-            return false
-        end
-    end
-    return true
-end
-
--- Visual-only horizontal staggering by lane.
--- The offset is constant for a given lane, so comments sharing a lane keep the
--- same relative trajectory and the existing collision prediction remains valid.
--- Inspired by danmaku-anywhere's random track distribution + strict collision-safe
--- placement; this extra X distribution prevents simultaneous rows entering as a wall.
-local SCROLLING_LANE_X_SPREAD = {
-    0.00, 0.55, 0.18, 0.83, 0.36, 0.68, 0.09, 0.46,
-    0.95, 0.27, 0.74, 0.13, 0.61, 0.41, 0.87, 0.22,
-}
-
-local function get_scrolling_lane_x_offset(row, resolution_x)
-    local spread = SCROLLING_LANE_X_SPREAD[((row - 1) % #SCROLLING_LANE_X_SPREAD) + 1]
-    return math.floor((tonumber(resolution_x) or 1920) * 0.22 * spread + 0.5)
 end
 
 -- 滚动弹幕 Y 坐标算法。
@@ -777,8 +710,8 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     if not options.balanced_lanes then
         for i = 1, array.rows do
             if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
-                array:set_scrolling_time_length(i, appear_time, text_length)
-                return 1 + (i - 1) * array.row_height, get_scrolling_lane_x_offset(i, resolution_x)
+                array:set_time_length(i, appear_time, text_length)
+                return 1 + (i - 1) * array.row_height
             end
         end
         return nil
@@ -844,12 +777,11 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     -- 已用轨道可安全复用时，优先使用最近的一条，而不是一味填满空轨道。
     local chosen_row = best_used_row or best_empty_row
     if chosen_row then
-        array:set_scrolling_time_length(chosen_row, appear_time, text_length)
+        array:set_time_length(chosen_row, appear_time, text_length)
         if best_used_row == nil then
             array.next_side = -preferred_side
         end
-        return 1 + (chosen_row - 1) * array.row_height,
-            get_scrolling_lane_x_offset(chosen_row, resolution_x)
+        return 1 + (chosen_row - 1) * array.row_height
     end
     return nil
 end
@@ -1093,10 +1025,10 @@ function convert_danmaku_to_ass_events(force)
         if danmaku_type >= 1 and danmaku_type <= 3 then
             style = "R2L"
             local text_length = get_str_width(text, event_fontsize)
-            local y, x_offset = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
-            x_offset = x_offset or 0
-            local x1 = res_x + text_length / 2 - x_offset
-            local x2 = -text_length / 2 - x_offset
+            local text_length = get_str_width(text, event_fontsize)
+            local x1 = res_x + text_length / 2
+            local x2 = -text_length / 2
+            local y = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
             if y then
                 effect = string.format("{\\move(%d, %d, %d, %d)}", x1, y, x2, y)
                 move = {x1, y, x2, y}
@@ -1173,9 +1105,8 @@ function build_live_ass_events(danmakus)
             local color_hex = string.format("%06X", color)
             local color_text = string.format("{\\c&H%s%s%s&}", color_hex:sub(5, 6), color_hex:sub(3, 4), color_hex:sub(1, 2))
             local text_length = get_str_width(text, fontsize)
-            local y, x_offset = get_position_y(fontsize, d.time, text_length, res_x, scrolltime, roll_array)
-            x_offset = x_offset or 0
-            local x1, x2 = res_x + text_length / 2 - x_offset, -text_length / 2 - x_offset
+            local x1, x2 = res_x + text_length / 2, -text_length / 2
+            local y = get_position_y(fontsize, d.time, text_length, res_x, scrolltime, roll_array)
             if y then
                 local event = {
                     orig_time = d.orig_time or d.time,
