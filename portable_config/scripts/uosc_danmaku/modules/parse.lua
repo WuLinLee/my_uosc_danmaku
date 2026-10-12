@@ -3,6 +3,61 @@ local utils = require 'mp.utils'
 local s2t   = require("dicts/s2t_chars")
 local t2s   = require("dicts/t2s_chars")
 
+-- Match the upstream get_str_width heuristic without its unused first byte-counting pass.
+-- A bounded per-conversion cache below avoids remeasuring common repeated comments.
+local function danmaku_text_width(text, font_size)
+    local unicode_width = 0
+    local i, text_length = 1, #text
+    while i <= text_length do
+        local b = string.byte(text, i)
+        local char_len
+        if b < 128 then
+            char_len = 1
+            unicode_width = unicode_width + 1
+        elseif b >= 192 and b < 224 then
+            char_len = 2
+            unicode_width = unicode_width + 2
+        elseif b >= 224 and b < 240 then
+            char_len = 3
+            unicode_width = unicode_width + 2
+        elseif b >= 240 and b < 248 then
+            char_len = 4
+            unicode_width = unicode_width + 2
+        else
+            char_len = 1
+            unicode_width = unicode_width + 1
+        end
+        i = i + char_len
+    end
+    return unicode_width * (font_size / 2)
+end
+
+local function make_danmaku_width_cache(max_entries)
+    local by_size, keys = {}, {}
+    local next_index = 1
+    return function(text, font_size)
+        local bucket = by_size[font_size]
+        local cached = bucket and bucket[text]
+        if cached ~= nil then return cached end
+
+        local width = danmaku_text_width(text, font_size)
+        local old = keys[next_index]
+        if old then
+            local old_bucket = by_size[old.font_size]
+            if old_bucket then old_bucket[old.text] = nil end
+        end
+
+        if not bucket then
+            bucket = {}
+            by_size[font_size] = bucket
+        end
+        bucket[text] = width
+        keys[next_index] = {font_size = font_size, text = text}
+        next_index = (next_index % max_entries) + 1
+        return width
+    end
+end
+
 local function ass_escape(text)
     return text:gsub("\\", "\\\\")
                :gsub("{", "\\{")
@@ -119,6 +174,35 @@ local function load_blacklist_patterns(filepath)
 end
 
 local black_patterns = {}
+local black_pattern_entries = {}
+
+local function is_plain_blacklist_pattern(pattern)
+    for i = 1, #pattern do
+        local c = pattern:sub(i, i)
+        if c == "%" or c == "(" or c == ")" or c == "." or c == "[" or c == "]"
+            or c == "*" or c == "+" or c == "-" or c == "?" or c == "^" or c == "$" then
+            return false
+        end
+    end
+    return true
+end
+
+-- Validate pattern rules once when the files are loaded. Most menu-added rules are
+-- literal words, so they can use plain substring search in the per-comment hot path.
+local function prepare_blacklist_entries(patterns)
+    local entries = {}
+    for _, pattern in ipairs(patterns) do
+        local plain = is_plain_blacklist_pattern(pattern)
+        local valid = true
+        if not plain then
+            valid = pcall(string.match, "", pattern)
+        end
+        if valid then
+            entries[#entries + 1] = {pattern = pattern, plain = plain}
+        end
+    end
+    return entries
+end
 
 local function expand_configured_path(path)
     path = tostring(path or "")
@@ -146,6 +230,7 @@ function reload_danmaku_blacklist()
         end
     end
     black_patterns = combined
+    black_pattern_entries = prepare_blacklist_entries(black_patterns)
     msg.info("弹幕屏蔽规则已加载：" .. tostring(#black_patterns) .. " 条")
     return #black_patterns
 end
@@ -161,16 +246,30 @@ reload_danmaku_blacklist()
 -- 检查字符串是否在黑名单中
 function is_blacklisted(str, patterns)
     if options.blacklist_enabled == false then return false end
-    for _, pattern in ipairs(patterns or black_patterns) do
-        local ok, result = pcall(function()
-            return str:match(pattern)
-        end)
+    local active_patterns = patterns or black_patterns
+    if #active_patterns == 0 then return false end
 
-        if ok and result then
-            return true, pattern
-        elseif not ok then
-            -- msg.debug("黑名单规则错误，跳过: " .. pattern .. "，错误信息：" .. result)
+    if active_patterns == black_patterns then
+        for _, entry in ipairs(black_pattern_entries) do
+            if entry.plain then
+                if str:find(entry.pattern, 1, true) then
+                    return true, entry.pattern
+                end
+            else
+                -- Keep protection for runtime-dependent pattern complexity errors.
+                local ok, result = pcall(string.match, str, entry.pattern)
+                if ok and result then
+                    return true, entry.pattern
+                end
+            end
         end
+        return false
+    end
+
+    -- Preserve compatibility for callers that pass a custom pattern list.
+    for _, pattern in ipairs(active_patterns) do
+        local ok, result = pcall(string.match, str, pattern)
+        if ok and result then return true, pattern end
     end
     return false
 end
@@ -932,7 +1031,18 @@ function convert_danmaku_to_ass_events(force)
             end
 
             if #list > 0 then
-                table.sort(list, function(a, b) return a.time < b.time end)
+                -- Sources parsed from XML/JSON are already ordered. Delay segments can
+                -- make a list unsorted, so only sort when the adjusted timestamps require it.
+                local sorted = true
+                for i = 2, #list do
+                    if list[i].time < list[i - 1].time then
+                        sorted = false
+                        break
+                    end
+                end
+                if not sorted then
+                    table.sort(list, function(a, b) return a.time < b.time end)
+                end
                 per_source_lists[#per_source_lists + 1] = list
             end
         end
@@ -1018,6 +1128,7 @@ function convert_danmaku_to_ass_events(force)
     end
 
     local ass_events = {}
+    local get_cached_danmaku_width = make_danmaku_width_cache(8192)
     for _, ev in ipairs(pre_events) do
         local d = ev.danmaku
         local appear_time = ev.start_time
@@ -1055,7 +1166,7 @@ function convert_danmaku_to_ass_events(force)
         -- 滚动弹幕 (类型 1, 2, 3)
         if danmaku_type >= 1 and danmaku_type <= 3 then
             style = "R2L"
-            local text_length = get_str_width(text, event_fontsize)
+            local text_length = get_cached_danmaku_width(text, event_fontsize)
             local x1 = res_x + text_length / 2
             local x2 = -text_length / 2
             local y = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
@@ -1102,9 +1213,9 @@ function convert_danmaku_to_ass_events(force)
                 font_size = is_merged and event_fontsize or nil,
             }
             table.insert(ass_events, event)
-            COMMENTS = ass_events
         end
     end
+    COMMENTS = ass_events
 end
 
 -- Build a transient live stream from already validated input.  It deliberately
@@ -1119,6 +1230,7 @@ function build_live_ass_events(danmakus)
     local row_spacing = tonumber(options.row_spacing) or 1.2
     local roll_array = DanmakuArray:new(res_x, layout_res_y, fontsize, row_spacing)
     local events = {}
+    local get_cached_danmaku_width = make_danmaku_width_cache(2048)
     local density_input = {}
     for _, d in ipairs(danmakus or {}) do
         if type(d.time) == "number" and type(d.text) == "string" and not is_blacklisted(d.text, black_patterns) then
@@ -1134,7 +1246,7 @@ function build_live_ass_events(danmakus)
                 local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
             local color_hex = string.format("%06X", color)
             local color_text = string.format("{\\c&H%s%s%s&}", color_hex:sub(5, 6), color_hex:sub(3, 4), color_hex:sub(1, 2))
-            local text_length = get_str_width(text, fontsize)
+            local text_length = get_cached_danmaku_width(text, fontsize)
             local x1, x2 = res_x + text_length / 2, -text_length / 2
             local y = get_position_y(fontsize, d.time, text_length, res_x, scrolltime, roll_array)
             if y then
