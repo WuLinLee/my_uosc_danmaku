@@ -192,8 +192,10 @@ local function ch_convert(str)
 end
 
 local ch_convert_cache = {}
+-- 固定容量的环形 FIFO。不要 table.remove(keys, 1)：超过容量后每次前删都会搬移数千个元素。
 local ch_cache_keys = {}
 local ch_cache_max = 5000
+local ch_cache_next = 1
 
 local function ch_convert_cached(text)
     if type(text) ~= "string" or text == "" then return text end
@@ -201,13 +203,13 @@ local function ch_convert_cached(text)
     if cached ~= nil then return cached end
 
     local converted = ch_convert(text)
-    ch_convert_cache[text] = converted
-    ch_cache_keys[#ch_cache_keys+1] = text
-
-    if #ch_cache_keys > ch_cache_max then
-        local old_key = table.remove(ch_cache_keys, 1)
+    local old_key = ch_cache_keys[ch_cache_next]
+    if old_key ~= nil then
         ch_convert_cache[old_key] = nil
     end
+    ch_cache_keys[ch_cache_next] = text
+    ch_cache_next = (ch_cache_next % ch_cache_max) + 1
+    ch_convert_cache[text] = converted
 
     return converted
 end
@@ -388,9 +390,18 @@ local function density_chars(text)
     return chars
 end
 
+local function density_char_count(text)
+    local count = 0
+    for _ in tostring(text or ""):gmatch("[%z\\1-\\127\\194-\\244][\\128-\\191]*") do
+        count = count + 1
+    end
+    return count
+end
+
 local function density_visual_cost(text, font_size, mode)
     local trimmed = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    local count = #density_chars(trimmed)
+    -- 这里只需要字符数；不必为每条弹幕创建 UTF-8 字符数组。
+    local count = density_char_count(trimmed)
     local width_cost = 0.7 + math.min(48, count) * 0.032
     local font_scale = density_clamp((tonumber(font_size) or 25) / 25, 0.65, 1.75)
     local mode_scale = (mode == "top" or mode == "bottom") and 1.3 or 1.0
@@ -408,9 +419,31 @@ local DENSITY_SYMBOLS = {
     ["↓"] = true, ["●"] = true, ["○"] = true, ["◎"] = true, ["※"] = true,
 }
 
+local density_information_cache = {}
+local density_information_keys = {}
+local density_information_cache_max = 10000
+local density_information_cache_next = 1
+
+local function cache_density_information_score(key, value)
+    local old_key = density_information_keys[density_information_cache_next]
+    if old_key ~= nil then
+        density_information_cache[old_key] = nil
+    end
+    density_information_keys[density_information_cache_next] = key
+    density_information_cache[key] = value
+    density_information_cache_next = (density_information_cache_next % density_information_cache_max) + 1
+    return value
+end
+
 local function density_information_score(text)
-    local original = density_chars(tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower())
-    if #original == 0 then return 0.2 end
+    local normalized = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    local cached = density_information_cache[normalized]
+    if cached ~= nil then return cached end
+
+    local original = density_chars(normalized)
+    if #original == 0 then
+        return cache_density_information_score(normalized, 0.2)
+    end
 
     -- 将连续 3 个及以上相同字符压缩为最多 2 个，降低刷屏重复字符的优先级。
     local compact, previous, run = {}, nil, 0
@@ -433,7 +466,8 @@ local function density_information_score(text)
     local variety = math.min(1, unique_count / 8)
     local repeat_penalty = 1 - math.min(1, #compact / #original)
     local symbol_penalty = has_meaningful and 0 or 0.15
-    return density_clamp(0.2 + diversity * 0.4 + variety * 0.35 - repeat_penalty * 0.3 - symbol_penalty, 0.05, 1)
+    local score = density_clamp(0.2 + diversity * 0.4 + variety * 0.35 - repeat_penalty * 0.3 - symbol_penalty, 0.05, 1)
+    return cache_density_information_score(normalized, score)
 end
 
 local function density_stable_unit_hash(text)
@@ -476,10 +510,23 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     end
     if #candidates < 2 then return items end
 
-    table.sort(candidates, function(a, b)
-        if a.time == b.time then return a.index < b.index end
-        return a.time < b.time
-    end)
+    -- 预加载弹幕通常已经按时间排序；仅在实际发现逆序时才重新排序。
+    -- 省掉大列表上的冗余 O(n log n) 排序，直播批次乱序时仍保留正确性。
+    local candidates_sorted = true
+    for i = 2, #candidates do
+        local previous, current = candidates[i - 1], candidates[i]
+        if current.time < previous.time
+            or (current.time == previous.time and current.index < previous.index) then
+            candidates_sorted = false
+            break
+        end
+    end
+    if not candidates_sorted then
+        table.sort(candidates, function(a, b)
+            if a.time == b.time then return a.index < b.index end
+            return a.time < b.time
+        end)
+    end
 
     local prefix = { [0] = 0 }
     for i, candidate in ipairs(candidates) do
@@ -703,6 +750,8 @@ end
 -- 滚动弹幕 Y 坐标算法。
 -- 均匀分布模式从画面上下边缘交替向中心推进，尽量给人物所在的中央区域留出空间。
 -- 每条轨道仍只检查上一条弹幕来判断碰撞，保持轻量；所有轨道都不安全时放弃该条弹幕。
+local DANMAKU_LANE_ZONE_WEIGHTS = { 0.5, 0.7, 0.5, 1, 0.7 }
+
 function get_position_y(font_size, appear_time, text_length, resolution_x, roll_time, array)
     if not options.balanced_lanes then
         for i = 1, array.rows do
@@ -714,72 +763,80 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 只在 displayarea 实际布局高度内分区，并保留用户指定的五区权重。
-    -- 每个区域把轨道随机打乱后，一旦找到安全轨道就停止检查该区域；
-    -- 这样既能在区域内均匀随机选安全轨道，也避免每条弹幕都扫描全部轨道。
-    local zone_weights = { 0.5, 0.7, 0.5, 1, 0.7 }
-    local safe_row_by_zone = {}
+    -- 只在 displayarea 实际布局高度内分区。按用户权重抽取目标区；
+    -- 在该区用 reservoir sampling 均匀选出安全轨道，无安全轨道才重新抽区。
+    -- 不再为每条弹幕创建五个轨道数组，也不必每次扫描所有五区。
     local row_count = array.rows
+    local tried_mask = 0
 
+    -- 轨道数少于五时，先排除没有任何轨道的空区。
     for zone = 1, 5 do
         local zone_start = math.floor((zone - 1) * row_count / 5) + 1
         local zone_end = math.floor(zone * row_count / 5)
-        local zone_rows = zone_end - zone_start + 1
+        if zone_end < zone_start then
+            tried_mask = tried_mask + 2 ^ (zone - 1)
+        end
+    end
 
-        if zone_rows > 0 then
-            local row_order = {}
-            for row = zone_start, zone_end do
-                row_order[#row_order + 1] = row
+    while tried_mask < 31 do
+        local total_weight = 0
+        for zone = 1, 5 do
+            local bit = 2 ^ (zone - 1)
+            if math.floor(tried_mask / bit) % 2 == 0 then
+                total_weight = total_weight + DANMAKU_LANE_ZONE_WEIGHTS[zone]
             end
+        end
+        if total_weight <= 0 then return nil end
 
-            -- 懒式 Fisher-Yates：每次只随机抽查一条尚未检查的轨道，
-            -- 找到安全轨道就停止，且第一条安全轨道在所有安全行中等概率。
-            for i = 1, #row_order do
-                local j = math.random(i, #row_order)
-                row_order[i], row_order[j] = row_order[j], row_order[i]
-                local row = row_order[i]
-                if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
-                    safe_row_by_zone[zone] = row
+        local ticket = math.random() * total_weight
+        local chosen_zone = nil
+        for zone = 1, 5 do
+            local bit = 2 ^ (zone - 1)
+            if math.floor(tried_mask / bit) % 2 == 0 then
+                ticket = ticket - DANMAKU_LANE_ZONE_WEIGHTS[zone]
+                if ticket < 0 then
+                    chosen_zone = zone
                     break
                 end
             end
         end
-    end
 
-    -- 只在确实有安全轨道的区域之间按权重抽签。
-    local total_weight = 0
-    for zone = 1, 5 do
-        if safe_row_by_zone[zone] then
-            total_weight = total_weight + zone_weights[zone]
-        end
-    end
-    if total_weight <= 0 then return nil end
-
-    local ticket = math.random() * total_weight
-    local chosen_zone = nil
-    for zone = 1, 5 do
-        if safe_row_by_zone[zone] then
-            ticket = ticket - zone_weights[zone]
-            if ticket < 0 then
-                chosen_zone = zone
-                break
+        if not chosen_zone then
+            for zone = 5, 1, -1 do
+                local bit = 2 ^ (zone - 1)
+                if math.floor(tried_mask / bit) % 2 == 0 then
+                    chosen_zone = zone
+                    break
+                end
             end
         end
-    end
+        if not chosen_zone then return nil end
 
-    -- 浮点边界保护。
-    if not chosen_zone then
-        for zone = 5, 1, -1 do
-            if safe_row_by_zone[zone] then
-                chosen_zone = zone
-                break
+        local zone_start = math.floor((chosen_zone - 1) * row_count / 5) + 1
+        local zone_end = math.floor(chosen_zone * row_count / 5)
+        local safe_count = 0
+        local chosen_row = nil
+
+        -- 蓄水池抽样：在该区全部安全行中等概率保留一条，无须建临时表。
+        for row = zone_start, zone_end do
+            if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
+                safe_count = safe_count + 1
+                if math.random(safe_count) == 1 then
+                    chosen_row = row
+                end
             end
         end
+
+        if chosen_row then
+            array:set_time_length(chosen_row, appear_time, text_length)
+            return 1 + (chosen_row - 1) * array.row_height
+        end
+
+        -- 当前区没有安全轨道，从剩余区域按同一权重重新抽取。
+        tried_mask = tried_mask + 2 ^ (chosen_zone - 1)
     end
 
-    local chosen_row = safe_row_by_zone[chosen_zone]
-    array:set_time_length(chosen_row, appear_time, text_length)
-    return 1 + (chosen_row - 1) * array.row_height
+    return nil
 end
 
 -- 固定弹幕 Y 坐标算法
