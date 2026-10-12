@@ -723,37 +723,31 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     local row_count = array.rows
     local tried_zones = {}
 
-    for zone_offset = 0, 2 do
+    for zone_offset = 0, #zone_cycle - 1 do
         local cycle_index = ((slot + zone_offset - 1) % #zone_cycle) + 1
         local zone = zone_cycle[cycle_index]
-        while tried_zones[zone] do
-            zone_offset = zone_offset + 1
-            if zone_offset > 9 then break end
-            cycle_index = ((slot + zone_offset - 1) % #zone_cycle) + 1
-            zone = zone_cycle[cycle_index]
-        end
-        if zone_offset > 9 then break end
-        tried_zones[zone] = true
+        if not tried_zones[zone] then
+            tried_zones[zone] = true
+            local zone_start = math.floor((zone - 1) * row_count / 3) + 1
+            local zone_end = math.floor(zone * row_count / 3)
+            local zone_rows = zone_end - zone_start + 1
 
-        local zone_start = math.floor((zone - 1) * row_count / 3) + 1
-        local zone_end = math.floor(zone * row_count / 3)
-        local zone_rows = zone_end - zone_start + 1
+            if zone_rows > 0 then
+                local first_row = array.next_row_by_zone and array.next_row_by_zone[zone]
+                if not first_row or first_row < zone_start or first_row > zone_end then
+                    first_row = zone_start
+                end
 
-        if zone_rows > 0 then
-            local first_row = array.next_row_by_zone and array.next_row_by_zone[zone]
-            if not first_row or first_row < zone_start or first_row > zone_end then
-                first_row = zone_start
-            end
-
-            for row_offset = 0, zone_rows - 1 do
-                local row = zone_start + ((first_row - zone_start + row_offset) % zone_rows)
-                if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
-                    array:set_time_length(row, appear_time, text_length)
-                    array.next_row_by_zone = array.next_row_by_zone or {}
-                    array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
-                    -- 权重轮转独立于实际落点；偶发碰撞不会永久改变三区比例。
-                    array.next_zone_slot = (slot % #zone_cycle) + 1
-                    return 1 + (row - 1) * array.row_height
+                for row_offset = 0, zone_rows - 1 do
+                    local row = zone_start + ((first_row - zone_start + row_offset) % zone_rows)
+                    if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
+                        array:set_time_length(row, appear_time, text_length)
+                        array.next_row_by_zone = array.next_row_by_zone or {}
+                        array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
+                        -- 权重轮转独立于实际落点；偶发碰撞不会永久改变三区比例。
+                        array.next_zone_slot = (slot % #zone_cycle) + 1
+                        return 1 + (row - 1) * array.row_height
+                    end
                 end
             end
         end
