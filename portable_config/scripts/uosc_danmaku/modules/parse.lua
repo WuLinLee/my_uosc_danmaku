@@ -481,68 +481,96 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         return a.time < b.time
     end)
 
-    -- Only thin actual spam: the same normalized text repeated in a short time cluster.
-    -- Unique comments remain visible; density controls how many copies survive, rather
-    -- than globally deleting comments just because the whole screen is busy.
+    -- Density applies to the whole crowded scene, not just identical text.
+    -- At 100 nothing is filtered; lower values progressively thin only overloaded
+    -- time windows. Selection is stratified in time to make holes rather than blocks.
     local density_ratio = density / 100
-    -- A scrolling comment stays on screen for roughly scroll_time seconds.
-    -- Detect repeated spam across a meaningful part of that visibility interval;
-    -- the old ~1.5s gap split ordinary bursts into groups that were too small to filter.
-    local cluster_window = density_clamp((tonumber(scroll_time) or 10) * 0.8, 3.0, 12.0)
-    local groups = {}
+    local area_factor = density_clamp((tonumber(area_ratio) or 0.8) / 0.8, 0.4, 1.3)
+    local half_window = math.max(0.75, (tonumber(scroll_time) or 10) / 2)
+    local bucket_span = density_clamp((tonumber(scroll_time) or 10) * 0.5, 2.0, 6.0)
+    local base_capacity = 22 * area_factor
+    local modes = { rtl = {}, top = {}, bottom = {} }
     local candidate_index = {}
     local keep = {}
 
     for _, candidate in ipairs(candidates) do
         candidate_index[candidate.index] = true
-        local normalized = candidate.text
-            :gsub("^%s+", "")
-            :gsub("%s+$", "")
-            :gsub("%s+", " ")
-            :lower()
+        local mode_items = modes[candidate.mode] or modes.rtl
+        candidate.mode_items = mode_items
+        mode_items[#mode_items + 1] = candidate
+        if candidate.protected then keep[candidate.index] = true end
+    end
 
-        -- Empty messages are not useful spam keys; keep them unchanged.
-        if normalized ~= "" and not candidate.protected then
-            groups[normalized] = groups[normalized] or {}
-            table.insert(groups[normalized], candidate)
-        else
-            -- Empty-text and protected candidates should never be dropped by this pass.
-            keep[candidate.index] = true
+    -- Calculate overload within each independently rendered comment mode, using
+    -- the complete visibility window rather than just the last 1–2 seconds.
+    local buckets = {}
+    for _, mode in ipairs({ "rtl", "top", "bottom" }) do
+        local mode_items = modes[mode]
+        local prefix = { [0] = 0 }
+        for i, candidate in ipairs(mode_items) do
+            prefix[i] = prefix[i - 1] + candidate.cost
+        end
+
+        local left, right = 1, 1
+        for i, candidate in ipairs(mode_items) do
+            while left < i and candidate.time - mode_items[left].time > half_window do
+                left = left + 1
+            end
+            if right < i then right = i end
+            while right < #mode_items and mode_items[right + 1].time <= candidate.time + half_window do
+                right = right + 1
+            end
+
+            local local_load = prefix[right] - prefix[left - 1]
+            local overload = math.max(0, local_load / math.max(0.001, base_capacity) - 1)
+            local pressure = 1 - math.exp(-1.05 * math.pow(overload, 1.25))
+            -- This mapping makes 99 almost identical to 100, while 50 can remove
+            -- roughly half of comments when the scene is heavily overloaded.
+            candidate.keep_ratio = density_clamp(1 - pressure * (1 - density_ratio), density_ratio, 1)
+
+            local bucket_id = mode .. ":" .. tostring(math.floor(candidate.time / bucket_span))
+            local bucket = buckets[bucket_id]
+            if not bucket then
+                bucket = { items = {}, ratio_sum = 0 }
+                buckets[bucket_id] = bucket
+            end
+            bucket.items[#bucket.items + 1] = candidate
+            bucket.ratio_sum = bucket.ratio_sum + candidate.keep_ratio
         end
     end
 
-    for _, group in pairs(groups) do
-        -- candidates are globally time-sorted, so each text group remains time-sorted.
-        local cluster_start = 1
-        while cluster_start <= #group do
-            local cluster_end = cluster_start
-            while cluster_end < #group
-                and group[cluster_end + 1].time - group[cluster_start].time <= cluster_window do
-                cluster_end = cluster_end + 1
+    for _, bucket in pairs(buckets) do
+        local selectable = {}
+        for _, candidate in ipairs(bucket.items) do
+            if not candidate.protected then
+                selectable[#selectable + 1] = candidate
             end
+        end
 
-            local cluster_size = cluster_end - cluster_start + 1
-            if cluster_size < 3 then
-                -- Ignore isolated repetitions, but detect small sustained bursts too.
-                for i = cluster_start, cluster_end do
-                    keep[group[i].index] = true
+        if #selectable > 0 then
+            local keep_ratio = bucket.ratio_sum / #bucket.items
+            local target = math.floor(#selectable * keep_ratio + 0.5)
+            target = math.max(1, math.min(#selectable, target))
+
+            if target >= #selectable then
+                for _, candidate in ipairs(selectable) do
+                    keep[candidate.index] = true
                 end
             else
-                local target = math.max(1, math.ceil(cluster_size * density_ratio))
-                target = math.min(target, cluster_size)
-
-                -- At 99 the change is intentionally tiny; at 50 about half of a large
-                -- identical burst remains. Temporal strata keep the retained copies
-                -- spread across the burst instead of preserving one dense core.
+                -- Divide the time-sorted candidates into equal strata and retain
+                -- one representative from each. Repeated text is not a prerequisite:
+                -- the algorithm thins all content in dense windows, not just spam.
                 for slot = 1, target do
-                    local first = cluster_start + math.floor((slot - 1) * cluster_size / target + 0.5)
-                    local last = cluster_start + math.floor(slot * cluster_size / target + 0.5) - 1
+                    local first = math.floor((slot - 1) * #selectable / target + 0.5) + 1
+                    local last = math.floor(slot * #selectable / target + 0.5)
+                    first = math.max(1, math.min(#selectable, first))
+                    last = math.max(first, math.min(#selectable, last))
                     local best = nil
                     local best_priority = -math.huge
                     local best_tie = -math.huge
 
                     for position = first, last do
-                        local candidate = group[position]
+                        local candidate = selectable[position]
                         local priority = density_information_score(candidate.text)
                         local tie_key = string.format(
                             "%.0f|%s|%s|%d",
@@ -560,14 +588,12 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
                     if best then keep[best.index] = true end
                 end
             end
-
-            cluster_start = cluster_end + 1
         end
     end
 
     local filtered = {}
     for index, item in ipairs(items) do
-        -- Preserve events that were not eligible for density filtering.
+        -- Events without a usable timestamp were never candidates, so preserve them.
         if not candidate_index[index] or keep[index] then
             filtered[#filtered + 1] = item
         end
