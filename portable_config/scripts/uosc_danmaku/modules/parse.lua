@@ -716,9 +716,10 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 分成上、中、下三个区域轮转；中心区域略高权重（40%），上下区域各 30%。
-    -- 区域暂时没有安全轨道时，才依次尝试另外的区域；每个区域内也轮换行。
-    local zone_cycle = { 2, 1, 3, 2, 1, 3, 2, 1, 3, 2 }
+    -- 只在 displayarea 对应的实际布局高度内分成五个区域，而不是按整个画面计算。
+    -- 从上到下的目标权重为 1:1.5:1:1.5:1；区域内轮换轨道，碰撞时才尝试其他区域。
+    -- 12 次轮转中五个区域分别出现 2、3、2、3、2 次，对应目标比例。
+    local zone_cycle = { 1, 2, 3, 4, 5, 2, 4, 1, 2, 3, 4, 5 }
     local slot = array.next_zone_slot or 1
     local row_count = array.rows
     local tried_zones = {}
@@ -728,8 +729,8 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         local zone = zone_cycle[cycle_index]
         if not tried_zones[zone] then
             tried_zones[zone] = true
-            local zone_start = math.floor((zone - 1) * row_count / 3) + 1
-            local zone_end = math.floor(zone * row_count / 3)
+            local zone_start = math.floor((zone - 1) * row_count / 5) + 1
+            local zone_end = math.floor(zone * row_count / 5)
             local zone_rows = zone_end - zone_start + 1
 
             if zone_rows > 0 then
