@@ -716,48 +716,37 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 从上下边缘向中心交替分配，尽量把人物所在的画面中心留出来。
-    -- 仍然只检查每条轨道最近一条弹幕，保持轻量的碰撞检测。
-    local preferred_side = array.next_side or -1
-    local center = (array.rows + 1) / 2
-    local max_offset = math.floor((array.rows - 1) / 2)
+    -- 将轨道分成上、中、下三个区域，按区域轮转分配，避免偏向中心或上下边缘。
+    -- 如果当前区域没有安全轨道，才尝试其他区域；每个区域内也轮转行，保持分配均匀。
+    array.next_zone = array.next_zone or 1
+    array.next_row_by_zone = array.next_row_by_zone or {}
+    local row_count = array.rows
 
-    for offset = 0, max_offset do
-        local upper_row = 1 + offset
-        local lower_row = array.rows - offset
-        local first_row, second_row
+    for zone_offset = 0, 2 do
+        local zone = ((array.next_zone + zone_offset - 1) % 3) + 1
+        local zone_start = math.floor((zone - 1) * row_count / 3) + 1
+        local zone_end = math.floor(zone * row_count / 3)
+        local zone_rows = zone_end - zone_start + 1
 
-        if preferred_side < 0 then
-            first_row, second_row = upper_row, lower_row
-        else
-            first_row, second_row = lower_row, upper_row
-        end
-
-        if can_use_scrolling_row(first_row, appear_time, text_length, resolution_x, roll_time, array) then
-            array:set_time_length(first_row, appear_time, text_length)
-            if first_row < center then
-                array.next_side = 1
-            elseif first_row > center then
-                array.next_side = -1
-            else
-                array.next_side = -preferred_side
+        if zone_rows > 0 then
+            local first_row = array.next_row_by_zone[zone]
+            if not first_row or first_row < zone_start or first_row > zone_end then
+                first_row = zone_start
             end
-            return 1 + (first_row - 1) * array.row_height
-        end
 
-        if second_row ~= first_row
-            and can_use_scrolling_row(second_row, appear_time, text_length, resolution_x, roll_time, array) then
-            array:set_time_length(second_row, appear_time, text_length)
-            if second_row < center then
-                array.next_side = 1
-            elseif second_row > center then
-                array.next_side = -1
-            else
-                array.next_side = -preferred_side
+            for row_offset = 0, zone_rows - 1 do
+                local row = zone_start + ((first_row - zone_start + row_offset) % zone_rows)
+                if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
+                    array:set_time_length(row, appear_time, text_length)
+                    array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
+                    -- 下一条优先进入下一个区域；若受碰撞限制换了区域，也从实际使用的区域继续轮转。
+                    array.next_zone = (zone % 3) + 1
+                    return 1 + (row - 1) * array.row_height
+                end
             end
-            return 1 + (second_row - 1) * array.row_height
         end
     end
+
     return nil
 end
 
