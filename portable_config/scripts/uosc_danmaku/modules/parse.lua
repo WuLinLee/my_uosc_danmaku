@@ -1006,6 +1006,15 @@ function convert_danmaku_to_xml(danmaku_out)
 end
 
 function convert_danmaku_to_ass_events(force)
+    -- Verbose-only timings help distinguish expensive parsing/layout from network lookup.
+    local profile_start = os.clock()
+    local profile_last = profile_start
+    local function profile_stage(name)
+        local now = os.clock()
+        msg.verbose(string.format("[danmaku load] %s: %.3fs", name, now - profile_last))
+        profile_last = now
+    end
+
     local per_source_lists = {}
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
@@ -1047,6 +1056,7 @@ function convert_danmaku_to_ass_events(force)
             end
         end
     end
+    profile_stage("source filtering and ordering")
 
     local danmakus = {}
 
@@ -1069,13 +1079,16 @@ function convert_danmaku_to_ass_events(force)
             heap.push({ time = lst[next_pos].time, list_idx = li, pos = next_pos, entry = lst[next_pos] })
         end
     end
+    profile_stage("merge source timelines")
 
     -- Repetition aggregation and the simultaneous-screen cap are independent controls.
     -- Never silently replace the user's merge interval with scrolltime when the cap is enabled.
     local merge_tolerance = tonumber(options.merge_tolerance) or 0
     danmakus = merge_duplicate_danmaku(danmakus, merge_tolerance)
+    profile_stage("duplicate aggregation")
 
     if #danmakus == 0 then
+        msg.verbose(string.format("[danmaku load] total before empty return: %.3fs", os.clock() - profile_start))
         if not force then
             show_message("该集弹幕内容为空，结束加载", 3)
             msg.verbose("该集弹幕内容为空，结束加载")
@@ -1126,6 +1139,7 @@ function convert_danmaku_to_ass_events(force)
     if options.max_screen_danmaku > 0 then
         pre_events = limit_danmaku(pre_events, options.max_screen_danmaku)
     end
+    profile_stage("density filtering and screen cap")
 
     local ass_events = {}
     local get_cached_danmaku_width = make_danmaku_width_cache(8192)
@@ -1216,6 +1230,8 @@ function convert_danmaku_to_ass_events(force)
         end
     end
     COMMENTS = ass_events
+    profile_stage("layout and event generation")
+    msg.verbose(string.format("[danmaku load] total: %.3fs (%d rendered events)", os.clock() - profile_start, #ass_events))
 end
 
 -- Build a transient live stream from already validated input.  It deliberately
