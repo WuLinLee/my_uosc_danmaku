@@ -508,6 +508,7 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
             local overload = local_load / math.max(0.001, budget) - 1
             local pressure = 1 - math.exp(-1.05 * math.pow(overload, 1.25))
             local priority = density_information_score(candidate.text)
+            candidate.priority = priority
             local low_density_boost = 1 + 0.3 * math.pow(1 - density_ratio, 1.5)
             local drop_chance = density_clamp(pressure * (1.08 - priority * 0.5) * low_density_boost, 0, 0.98)
             local hash_key = string.format("%.0f|%s|%s|%d", math.floor(candidate.time * 1000 + 0.5), candidate.mode, candidate.text, candidate.index)
@@ -567,7 +568,7 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
                         local candidate = candidates[position]
                         if candidate.mode == mode and dropped[candidate.index] then
                             local distance = math.abs(candidate.time - midpoint)
-                            local priority = density_information_score(candidate.text)
+                            local priority = candidate.priority or density_information_score(candidate.text)
                             if distance < gap_distance
                                 or (distance == gap_distance and priority > gap_priority) then
                                 gap_candidate = candidate
