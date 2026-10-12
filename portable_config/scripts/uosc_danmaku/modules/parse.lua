@@ -647,8 +647,6 @@ function DanmakuArray:new(res_x, res_y, font_size, row_spacing)
         row_height = row_height,
         rows = math.max(1, math.floor((tonumber(res_y) or row_height) / row_height)),
         time_length_array = {},
-        -- 平衡分配时用于打破对称轨道的平局，避免持续偏向上侧。
-        next_side = -1,
     }
     for i = 1, obj.rows do
         obj.time_length_array[i] = { time = 0, length = 0, empty = true }
