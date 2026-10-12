@@ -481,113 +481,94 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         return a.time < b.time
     end)
 
-    local prefix = { [0] = 0 }
-    for i, candidate in ipairs(candidates) do
-        prefix[i] = prefix[i - 1] + candidate.cost
-    end
-
-    local half_window = math.max(0.75, (tonumber(scroll_time) or 15) / 2)
-    local area_factor = density_clamp((tonumber(area_ratio) or 0.8) / 0.8, 0.4, 1.3)
+    -- Only thin actual spam: the same normalized text repeated in a short time cluster.
+    -- Unique comments remain visible; density controls how many copies survive, rather
+    -- than globally deleting comments just because the whole screen is busy.
     local density_ratio = density / 100
-    local base_budget = (8 + math.pow(density_ratio, 1.4) * 42) * area_factor
-    local budget = base_budget * (0.5 + 0.5 * density_ratio)
-    -- Use deterministic temporal quotas instead of independent per-comment coin flips.
-    -- That keeps each busy time slice represented while still thinning overload.
-    local bucket_span = density_clamp(
-        (tonumber(scroll_time) or 15) * (0.08 + 0.12 * (1 - density_ratio)),
-        0.5, 2.0
-    )
-    local buckets = {}
-    local left, right = 1, 1
+    local cluster_gap = density_clamp((tonumber(scroll_time) or 10) * 0.15, 1.0, 2.5)
+    local groups = {}
+    local candidate_index = {}
 
-    for i, candidate in ipairs(candidates) do
-        while left < i and candidate.time - candidates[left].time > half_window do
-            left = left + 1
-        end
-        if right < i then right = i end
-        while right < #candidates and candidates[right + 1].time <= candidate.time + half_window do
-            right = right + 1
-        end
+    for _, candidate in ipairs(candidates) do
+        candidate_index[candidate.index] = true
+        local normalized = candidate.text
+            :gsub("^%s+", "")
+            :gsub("%s+$", "")
+            :gsub("%s+", " ")
+            :lower()
 
-        local local_load = prefix[right] - prefix[left - 1]
-        local keep_ratio = 1
-        if local_load > budget then
-            -- Approximate the original soft budget's keep rate, but apply it as a
-            -- quota across a time bucket so overload cannot randomly erase a whole slice.
-            keep_ratio = density_clamp(budget / math.max(0.001, local_load), 0, 1)
+        -- Empty messages are not useful spam keys; keep them unchanged.
+        if normalized ~= "" and not candidate.protected then
+            groups[normalized] = groups[normalized] or {}
+            table.insert(groups[normalized], candidate)
         end
-
-        local bucket_index = math.floor(candidate.time / bucket_span)
-        local bucket = buckets[bucket_index]
-        if not bucket then
-            bucket = { items = {}, keep_ratio = 1 }
-            buckets[bucket_index] = bucket
-        end
-        bucket.items[#bucket.items + 1] = candidate
-        bucket.keep_ratio = math.min(bucket.keep_ratio, keep_ratio)
     end
 
     local keep = {}
-    local candidate_index = {}
     for _, candidate in ipairs(candidates) do
-        candidate_index[candidate.index] = true
-    end
-    for _, bucket in pairs(buckets) do
-        local protected = {}
-        local selectable = {}
-        for _, candidate in ipairs(bucket.items) do
-            if candidate.protected then
-                protected[#protected + 1] = candidate
-            else
-                selectable[#selectable + 1] = candidate
-            end
-        end
-
-        for _, candidate in ipairs(protected) do
+        if candidate.protected then
             keep[candidate.index] = true
         end
+    end
 
-        if bucket.keep_ratio >= 1 or #selectable == 0 then
-            for _, candidate in ipairs(selectable) do
-                keep[candidate.index] = true
+    for _, group in pairs(groups) do
+        -- candidates are globally time-sorted, so each text group remains time-sorted.
+        local cluster_start = 1
+        while cluster_start <= #group do
+            local cluster_end = cluster_start
+            while cluster_end < #group
+                and group[cluster_end + 1].time - group[cluster_end].time <= cluster_gap do
+                cluster_end = cluster_end + 1
             end
-        else
-            -- Keep a proportional quota, but never drop every ordinary comment
-            -- from a time bucket that contains candidates. Select one representative
-            -- from each chronological stratum to reduce clusters and long holes.
-            local target = math.max(1, math.ceil(#selectable * bucket.keep_ratio))
-            target = math.min(target, #selectable)
-            for slot = 1, target do
-                local first = math.floor((slot - 1) * #selectable / target) + 1
-                local last = math.floor(slot * #selectable / target)
-                local best = nil
-                local best_priority = -math.huge
-                local best_tie = -math.huge
 
-                for position = first, last do
-                    local candidate = selectable[position]
-                    local priority = density_information_score(candidate.text)
-                    local tie_key = string.format(
-                        "%.0f|%s|%s|%d",
-                        math.floor(candidate.time * 1000 + 0.5),
-                        candidate.mode, candidate.text, candidate.index
-                    )
-                    local tie = density_stable_unit_hash(tie_key)
-                    if priority > best_priority or (priority == best_priority and tie > best_tie) then
-                        best = candidate
-                        best_priority = priority
-                        best_tie = tie
-                    end
+            local cluster_size = cluster_end - cluster_start + 1
+            if cluster_size < 4 then
+                -- Don't suppress occasional repeated phrases; only treat sustained,
+                -- visibly repetitive bursts as spam.
+                for i = cluster_start, cluster_end do
+                    keep[group[i].index] = true
                 end
+            else
+                local target = math.max(1, math.ceil(cluster_size * density_ratio))
+                target = math.min(target, cluster_size)
 
-                if best then keep[best.index] = true end
+                -- At 99 the change is intentionally tiny; at 50 about half of a large
+                -- identical burst remains. Temporal strata keep the retained copies
+                -- spread across the burst instead of preserving one dense core.
+                for slot = 1, target do
+                    local first = cluster_start + math.floor((slot - 1) * cluster_size / target)
+                    local last = cluster_start + math.floor(slot * cluster_size / target) - 1
+                    local best = nil
+                    local best_priority = -math.huge
+                    local best_tie = -math.huge
+
+                    for position = first, last do
+                        local candidate = group[position]
+                        local priority = density_information_score(candidate.text)
+                        local tie_key = string.format(
+                            "%.0f|%s|%s|%d",
+                            math.floor(candidate.time * 1000 + 0.5),
+                            candidate.mode, candidate.text, candidate.index
+                        )
+                        local tie = density_stable_unit_hash(tie_key)
+                        if priority > best_priority or (priority == best_priority and tie > best_tie) then
+                            best = candidate
+                            best_priority = priority
+                            best_tie = tie
+                        end
+                    end
+
+                    if best then keep[best.index] = true end
+                end
             end
+
+            cluster_start = cluster_end + 1
         end
     end
 
     local filtered = {}
     for index, item in ipairs(items) do
-        -- Items without a usable timestamp were never density candidates; preserve them.
+        -- Preserve events that were not eligible for density filtering.
         if not candidate_index[index] or keep[index] then
             filtered[#filtered + 1] = item
         end
