@@ -2,6 +2,7 @@ local msg   = require 'mp.msg'
 local utils = require 'mp.utils'
 local s2t   = require("dicts/s2t_chars")
 local t2s   = require("dicts/t2s_chars")
+local string_byte = string.byte
 
 -- Match the upstream get_str_width heuristic without its unused first byte-counting pass.
 -- A bounded per-conversion cache below avoids remeasuring common repeated comments.
@@ -489,18 +490,39 @@ local function density_chars(text)
     return chars
 end
 
-local function density_char_count(text)
+local function is_density_whitespace(b)
+    return b == 32 or b == 9 or b == 10 or b == 11 or b == 12 or b == 13
+end
+
+local function density_trim_bounds(text)
+    local first, last = 1, #text
+    while first <= last and is_density_whitespace(string_byte(text, first)) do
+        first = first + 1
+    end
+    while last >= first and is_density_whitespace(string_byte(text, last)) do
+        last = last - 1
+    end
+    return first, last
+end
+
+local function density_char_count(text, first, last)
     local count = 0
-    for _ in tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        count = count + 1
+    first, last = first or 1, last or #text
+    -- Count UTF-8 leading bytes directly instead of allocating a gmatch iterator
+    -- and rescanning a temporary trimmed string for every candidate.
+    for i = first, last do
+        local b = string_byte(text, i)
+        if b <= 127 or (b >= 194 and b <= 244) then
+            count = count + 1
+        end
     end
     return count
 end
 
 local function density_visual_cost(text, font_size, mode)
-    local trimmed = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    -- 这里只需要字符数；不必为每条弹幕创建 UTF-8 字符数组。
-    local count = density_char_count(trimmed)
+    text = tostring(text or "")
+    local first, last = density_trim_bounds(text)
+    local count = density_char_count(text, first, last)
     local width_cost = 0.7 + math.min(48, count) * 0.032
     local font_scale = density_clamp((tonumber(font_size) or 25) / 25, 0.65, 1.75)
     local mode_scale = (mode == "top" or mode == "bottom") and 1.3 or 1.0
@@ -535,7 +557,13 @@ local function cache_density_information_score(key, value)
 end
 
 local function density_information_score(text)
-    local normalized = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+    local raw_text = tostring(text or "")
+    local first, last = density_trim_bounds(raw_text)
+    local normalized = raw_text
+    if first > 1 or last < #raw_text then
+        normalized = raw_text:sub(first, last)
+    end
+    normalized = normalized:lower()
     local cached = density_information_cache[normalized]
     if cached ~= nil then return cached end
 
