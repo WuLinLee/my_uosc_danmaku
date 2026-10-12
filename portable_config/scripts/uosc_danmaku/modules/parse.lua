@@ -712,8 +712,10 @@ end
 
 -- 解析 XML 弹幕
 function parse_xml_danmaku(xml_string)
+    local parse_start = os.clock()
     local danmakus = {}
     if not xml_string then
+        msg.verbose(string.format("[danmaku load] XML parse: %.3fs (0 comments)", os.clock() - parse_start))
         return danmakus
     end
     -- [^>]* 匹配其他 attributes
@@ -738,11 +740,13 @@ function parse_xml_danmaku(xml_string)
     end
 
     sort_danmakus_if_needed(danmakus)
+    msg.verbose(string.format("[danmaku load] XML parse: %.3fs (%d comments)", os.clock() - parse_start, #danmakus))
     return danmakus
 end
 
 -- 解析 JSON 弹幕
 function parse_json_danmaku(json_string)
+    local parse_start = os.clock()
     local danmakus = {}
     if json_string:sub(1, 3) == "\239\187\191" then
         json_string = json_string:sub(4)
@@ -751,6 +755,7 @@ function parse_json_danmaku(json_string)
     local json = utils.parse_json(json_string)
     if not json or type(json) ~= "table" then
         msg.info("JSON 解析失败")
+        msg.verbose(string.format("[danmaku load] JSON parse: %.3fs (0 comments)", os.clock() - parse_start))
         return danmakus
     end
 
@@ -778,6 +783,7 @@ function parse_json_danmaku(json_string)
     end
 
     sort_danmakus_if_needed(danmakus)
+    msg.verbose(string.format("[danmaku load] JSON parse: %.3fs (%d comments)", os.clock() - parse_start, #danmakus))
     return danmakus
 end
 
@@ -1040,7 +1046,7 @@ function convert_danmaku_to_xml(danmaku_out)
 end
 
 function convert_danmaku_to_ass_events(force)
-    -- Verbose-only timings help distinguish expensive parsing/layout from network lookup.
+    -- Verbose-only timings isolate conversion/layout cost from work outside this function.
     local profile_start = os.clock()
     local profile_last = profile_start
     local function profile_stage(name)
