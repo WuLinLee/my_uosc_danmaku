@@ -25,9 +25,11 @@ local STYLE_KEYS = {
     "live_fps_mode",
 }
 
--- Capture the effective defaults after mp.options has loaded the user's .conf,
--- but before the cross-process JSON file overrides them. Clearing saved defaults
--- should return to these values in the current process as well.
+-- Reuse canonical defaults from options.lua instead of duplicating values here.
+local STYLE_DEFAULTS = type(DANMAKU_STYLE_DEFAULTS) == "table" and DANMAKU_STYLE_DEFAULTS or {}
+
+-- Capture values after mp.options has read .conf/command-line overrides, but before JSON.
+-- Clearing JSON restores this base in the current process as well.
 local STYLE_BASE_DEFAULTS = {}
 for _, key in ipairs(STYLE_KEYS) do
     STYLE_BASE_DEFAULTS[key] = options[key]
@@ -128,29 +130,11 @@ function load_danmaku_style_defaults()
 end
 
 function save_danmaku_style_defaults()
-    local defaults = {
-        bold = true,
-        fontname = "Source Han Sans",
-        fontsize = 55,
-        outline = 1,
-        shadow = 0,
-        scrolltime = 10,
-        opacity = 0.7,
-        displayarea = 0.8,
-        density = 50,
-        row_spacing = 1.2,
-        balanced_lanes = true,
-        merge_tolerance = 0,
-        max_screen_danmaku = 0,
-        merge_without_style = false,
-        blacklist_enabled = true,
-        live_fps_mode = "auto",
-    }
     local values = {}
     for _, key in ipairs(STYLE_KEYS) do
         local source_value = options[key]
-        -- Allow mixed plugin versions to save defaults if an option is missing.
-        if source_value == nil then source_value = defaults[key] end
+        -- Use the canonical options.lua defaults if a mixed-version option is absent.
+        if source_value == nil then source_value = STYLE_DEFAULTS[key] end
         local value = normalized_style_value(key, source_value)
         if not valid_style_value(key, value) then
             local err = "跨进程默认保存失败：字段 " .. key .. " 的值无效（" .. tostring(source_value) .. "）"
