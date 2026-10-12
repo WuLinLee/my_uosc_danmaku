@@ -129,18 +129,18 @@ end
 
 function save_danmaku_style_defaults()
     local defaults = {
-        bold = false,
+        bold = true,
         fontname = "Source Han Sans",
         fontsize = 55,
         outline = 1,
         shadow = 0,
-        scrolltime = 15,
+        scrolltime = 10,
         opacity = 0.7,
         displayarea = 0.8,
         density = 50,
         row_spacing = 1.2,
         balanced_lanes = true,
-        merge_tolerance = -1,
+        merge_tolerance = 0,
         max_screen_danmaku = 0,
         merge_without_style = false,
         blacklist_enabled = true,
