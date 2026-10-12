@@ -481,122 +481,46 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         return a.time < b.time
     end)
 
-    -- Density applies to the whole crowded scene, not just identical text.
-    -- At 100 nothing is filtered; lower values progressively thin only overloaded
-    -- time windows. Selection is stratified in time to make holes rather than blocks.
-    local density_ratio = density / 100
+    local prefix = { [0] = 0 }
+    for i, candidate in ipairs(candidates) do
+        prefix[i] = prefix[i - 1] + candidate.cost
+    end
+
+    local half_window = math.max(0.75, (tonumber(scroll_time) or 15) / 2)
     local area_factor = density_clamp((tonumber(area_ratio) or 0.8) / 0.8, 0.4, 1.3)
-    local half_window = math.max(0.75, (tonumber(scroll_time) or 10) / 2)
-    local bucket_span = density_clamp((tonumber(scroll_time) or 10) * 0.5, 2.0, 6.0)
-    local base_capacity = 22 * area_factor
-    local modes = { rtl = {}, top = {}, bottom = {} }
-    local candidate_index = {}
-    local keep = {}
+    local density_ratio = density / 100
+    local base_budget = (8 + math.pow(density_ratio, 1.4) * 42) * area_factor
+    local budget = base_budget * (0.5 + 0.5 * density_ratio)
+    local dropped = {}
+    local left, right = 1, 1
 
-    for _, candidate in ipairs(candidates) do
-        candidate_index[candidate.index] = true
-        local mode_items = modes[candidate.mode] or modes.rtl
-        candidate.mode_items = mode_items
-        mode_items[#mode_items + 1] = candidate
-        if candidate.protected then keep[candidate.index] = true end
-    end
-
-    -- Calculate overload within each independently rendered comment mode, using
-    -- the complete visibility window rather than just the last 1–2 seconds.
-    local buckets = {}
-    for _, mode in ipairs({ "rtl", "top", "bottom" }) do
-        local mode_items = modes[mode]
-        local prefix = { [0] = 0 }
-        for i, candidate in ipairs(mode_items) do
-            prefix[i] = prefix[i - 1] + candidate.cost
+    for i, candidate in ipairs(candidates) do
+        while left < i and candidate.time - candidates[left].time > half_window do
+            left = left + 1
+        end
+        if right < i then right = i end
+        while right < #candidates and candidates[right + 1].time <= candidate.time + half_window do
+            right = right + 1
         end
 
-        local left, right = 1, 1
-        for i, candidate in ipairs(mode_items) do
-            while left < i and candidate.time - mode_items[left].time > half_window do
-                left = left + 1
-            end
-            if right < i then right = i end
-            while right < #mode_items and mode_items[right + 1].time <= candidate.time + half_window do
-                right = right + 1
-            end
-
-            local local_load = prefix[right] - prefix[left - 1]
-            local overload = math.max(0, local_load / math.max(0.001, base_capacity) - 1)
+        local local_load = prefix[right] - prefix[left - 1]
+        if not candidate.protected and local_load > budget then
+            local overload = local_load / math.max(0.001, budget) - 1
             local pressure = 1 - math.exp(-1.05 * math.pow(overload, 1.25))
-            -- This mapping makes 99 almost identical to 100, while 50 can remove
-            -- roughly half of comments when the scene is heavily overloaded.
-            candidate.keep_ratio = density_clamp(1 - pressure * (1 - density_ratio), density_ratio, 1)
-
-            local bucket_id = mode .. ":" .. tostring(math.floor(candidate.time / bucket_span))
-            local bucket = buckets[bucket_id]
-            if not bucket then
-                bucket = { items = {}, ratio_sum = 0 }
-                buckets[bucket_id] = bucket
-            end
-            bucket.items[#bucket.items + 1] = candidate
-            bucket.ratio_sum = bucket.ratio_sum + candidate.keep_ratio
-        end
-    end
-
-    for _, bucket in pairs(buckets) do
-        local selectable = {}
-        for _, candidate in ipairs(bucket.items) do
-            if not candidate.protected then
-                selectable[#selectable + 1] = candidate
-            end
-        end
-
-        if #selectable > 0 then
-            local keep_ratio = bucket.ratio_sum / #bucket.items
-            local target = math.floor(#selectable * keep_ratio + 0.5)
-            target = math.max(1, math.min(#selectable, target))
-
-            if target >= #selectable then
-                for _, candidate in ipairs(selectable) do
-                    keep[candidate.index] = true
-                end
-            else
-                -- Divide the time-sorted candidates into equal strata and retain
-                -- one representative from each. Repeated text is not a prerequisite:
-                -- the algorithm thins all content in dense windows, not just spam.
-                for slot = 1, target do
-                    local first = math.floor((slot - 1) * #selectable / target + 0.5) + 1
-                    local last = math.floor(slot * #selectable / target + 0.5)
-                    first = math.max(1, math.min(#selectable, first))
-                    last = math.max(first, math.min(#selectable, last))
-                    local best = nil
-                    local best_priority = -math.huge
-                    local best_tie = -math.huge
-
-                    for position = first, last do
-                        local candidate = selectable[position]
-                        local priority = density_information_score(candidate.text)
-                        local tie_key = string.format(
-                            "%.0f|%s|%s|%d",
-                            math.floor(candidate.time * 1000 + 0.5),
-                            candidate.mode, candidate.text, candidate.index
-                        )
-                        local tie = density_stable_unit_hash(tie_key)
-                        if priority > best_priority or (priority == best_priority and tie > best_tie) then
-                            best = candidate
-                            best_priority = priority
-                            best_tie = tie
-                        end
-                    end
-
-                    if best then keep[best.index] = true end
-                end
+            local priority = density_information_score(candidate.text)
+            local low_density_boost = 1 + 0.3 * math.pow(1 - density_ratio, 1.5)
+            local drop_chance = density_clamp(pressure * (1.08 - priority * 0.5) * low_density_boost, 0, 0.98)
+            local hash_key = string.format("%.0f|%s|%s|%d", math.floor(candidate.time * 1000 + 0.5), candidate.mode, candidate.text, candidate.index)
+            if density_stable_unit_hash(hash_key) < drop_chance then
+                dropped[candidate.index] = true
             end
         end
     end
 
+    if next(dropped) == nil then return items end
     local filtered = {}
     for index, item in ipairs(items) do
-        -- Events without a usable timestamp were never candidates, so preserve them.
-        if not candidate_index[index] or keep[index] then
-            filtered[#filtered + 1] = item
-        end
+        if not dropped[index] then filtered[#filtered + 1] = item end
     end
     return filtered
 end
