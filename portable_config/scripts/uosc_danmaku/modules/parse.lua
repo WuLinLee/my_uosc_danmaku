@@ -216,18 +216,18 @@ end
 -- 这些值使用 RGB，后续 ASS 输出会统一转换为 BGR。
 local function duplicate_burst_color(count)
     count = tonumber(count) or 1
-    if count >= 8 then return 0xFF5A36 end -- 8+: 橙红
-    if count >= 6 then return 0xFFCC33 end -- 6-7: 金黄
-    if count >= 4 then return 0x29B6F6 end -- 4-5: 鲜蓝
-    if count >= 2 then return 0x4DD0E1 end -- 2-3: 青绿
+    if count >= 11 then return 0xFF5A36 end -- 11+: 橙红
+    if count >= 7 then return 0xFFCC33 end  -- 7-10: 金黄
+    if count >= 4 then return 0x29B6F6 end  -- 4-6: 鲜蓝
+    if count >= 2 then return 0x4DD0E1 end  -- 2-3: 青绿
     return nil
 end
 
 -- 按合并数量返回中文全角感叹号数量；单条弹幕不追加标点。
 local function duplicate_burst_exclamation_count(count)
     count = tonumber(count) or 1
-    if count >= 8 then return 4 end
-    if count >= 6 then return 3 end
+    if count >= 11 then return 4 end
+    if count >= 7 then return 3 end
     if count >= 4 then return 2 end
     if count >= 2 then return 1 end
     return 0
