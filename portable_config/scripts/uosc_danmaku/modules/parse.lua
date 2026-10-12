@@ -830,6 +830,21 @@ local function can_use_scrolling_row(row, appear_time, text_length, resolution_x
     return true
 end
 
+-- Visual-only horizontal staggering by lane.
+-- The offset is constant for a given lane, so comments sharing a lane keep the
+-- same relative trajectory and the existing collision prediction remains valid.
+-- Inspired by danmaku-anywhere's random track distribution + strict collision-safe
+-- placement; this extra X distribution prevents simultaneous rows entering as a wall.
+local SCROLLING_LANE_X_SPREAD = {
+    0.00, 0.55, 0.18, 0.83, 0.36, 0.68, 0.09, 0.46,
+    0.95, 0.27, 0.74, 0.13, 0.61, 0.41, 0.87, 0.22,
+}
+
+local function get_scrolling_lane_x_offset(row, resolution_x)
+    local spread = SCROLLING_LANE_X_SPREAD[((row - 1) % #SCROLLING_LANE_X_SPREAD) + 1]
+    return math.floor((tonumber(resolution_x) or 1920) * 0.22 * spread + 0.5)
+end
+
 -- 滚动弹幕 Y 坐标算法。
 -- 优先复用已使用且当前无碰撞的轨道，减少稀疏弹幕被摊到不同轨道后
 -- 在同一行形成的大横向间隔。只有已用轨道都不合适时才启用空轨道；
@@ -839,7 +854,7 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         for i = 1, array.rows do
             if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
                 array:set_scrolling_time_length(i, appear_time, text_length)
-                return 1 + (i - 1) * array.row_height
+                return 1 + (i - 1) * array.row_height, get_scrolling_lane_x_offset(i, resolution_x)
             end
         end
         return nil
@@ -909,7 +924,8 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         if best_used_row == nil then
             array.next_side = -preferred_side
         end
-        return 1 + (chosen_row - 1) * array.row_height
+        return 1 + (chosen_row - 1) * array.row_height,
+            get_scrolling_lane_x_offset(chosen_row, resolution_x)
     end
     return nil
 end
@@ -1153,9 +1169,10 @@ function convert_danmaku_to_ass_events(force)
         if danmaku_type >= 1 and danmaku_type <= 3 then
             style = "R2L"
             local text_length = get_str_width(text, event_fontsize)
-            local x1 = res_x + text_length / 2
-            local x2 = -text_length / 2
-            local y = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
+            local y, x_offset = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
+            x_offset = x_offset or 0
+            local x1 = res_x + text_length / 2 - x_offset
+            local x2 = -text_length / 2 - x_offset
             if y then
                 effect = string.format("{\\move(%d, %d, %d, %d)}", x1, y, x2, y)
                 move = {x1, y, x2, y}
@@ -1232,8 +1249,9 @@ function build_live_ass_events(danmakus)
             local color_hex = string.format("%06X", color)
             local color_text = string.format("{\\c&H%s%s%s&}", color_hex:sub(5, 6), color_hex:sub(3, 4), color_hex:sub(1, 2))
             local text_length = get_str_width(text, fontsize)
-            local x1, x2 = res_x + text_length / 2, -text_length / 2
-            local y = get_position_y(fontsize, d.time, text_length, res_x, scrolltime, roll_array)
+            local y, x_offset = get_position_y(fontsize, d.time, text_length, res_x, scrolltime, roll_array)
+            x_offset = x_offset or 0
+            local x1, x2 = res_x + text_length / 2 - x_offset, -text_length / 2 - x_offset
             if y then
                 local event = {
                     orig_time = d.orig_time or d.time,
