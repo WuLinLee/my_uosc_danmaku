@@ -529,7 +529,7 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     local max_repairs = math.min(
         512,
         math.floor(dropped_count * 0.25),
-        math.max(1, math.floor(#candidates * (1 - density_ratio) * 0.15 + 0.5)
+        math.max(1, math.floor(#candidates * (1 - density_ratio) * 0.15 + 0.5))
     )
     local max_gap = math.max(1.5, half_window * (1.1 - 0.55 * density_ratio))
     local kept = {}
@@ -547,7 +547,6 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         local widest_gap = max_gap
         local best_gap_index = nil
         local best_candidate = nil
-        local best_distance = math.huge
         local best_priority = -math.huge
 
         for gap_index = 1, #kept - 1 do
@@ -579,7 +578,6 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
                     widest_gap = gap
                     best_gap_index = gap_index
                     best_candidate = gap_candidate
-                    best_distance = gap_distance
                     best_priority = gap_priority
                 end
             end
