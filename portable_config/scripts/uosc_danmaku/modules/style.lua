@@ -6,27 +6,18 @@ local STYLE_PATH_PROPERTY = "user-data/uosc_danmaku/style-defaults-path"
 local STYLE_STATUS_PROPERTY = "user-data/uosc_danmaku/style-defaults-status"
 local LIVE_FPS_MODE_PROPERTY = "user-data/uosc_danmaku/live-fps-mode"
 
-local STYLE_KEYS = {
-    "bold",
-    "fontname",
-    "fontsize",
-    "outline",
-    "shadow",
-    "scrolltime",
-    "opacity",
-    "displayarea",
-    "density",
-    "row_spacing",
-    "balanced_lanes",
-    "merge_tolerance",
-    "max_screen_danmaku",
-    "merge_without_style",
-    "blacklist_enabled",
-    "live_fps_mode",
-}
+-- The canonical table in options.lua defines both the defaults and persisted style schema.
+-- main.lua loads options.lua before style.lua; fail early if that contract ever changes.
+local STYLE_DEFAULTS = DANMAKU_STYLE_DEFAULTS
+if type(STYLE_DEFAULTS) ~= "table" then
+    error("DANMAKU_STYLE_DEFAULTS must be initialized before modules/style.lua")
+end
 
--- Reuse canonical defaults from options.lua instead of duplicating values here.
-local STYLE_DEFAULTS = type(DANMAKU_STYLE_DEFAULTS) == "table" and DANMAKU_STYLE_DEFAULTS or {}
+local STYLE_KEYS = {}
+for key in pairs(STYLE_DEFAULTS) do
+    STYLE_KEYS[#STYLE_KEYS + 1] = key
+end
+table.sort(STYLE_KEYS)
 
 -- Capture values after mp.options has read .conf/command-line overrides, but before JSON.
 -- Clearing JSON restores this base in the current process as well.
