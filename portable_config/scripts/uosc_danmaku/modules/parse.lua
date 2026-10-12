@@ -703,9 +703,9 @@ local function can_use_scrolling_row(row, appear_time, text_length, resolution_x
 end
 
 -- 滚动弹幕 Y 坐标算法。
--- 旧模式仍保持从上到下的 first-fit；均匀模式先做同样的碰撞检查，再优先填充
--- 尚未使用、离屏幕垂直中心较近的轨道；轨道都用过后，复用最久未使用的可用轨道。
--- 这样不会只因“第一条轨道可用”就始终挤在画面顶部，同时仍遵守同轨碰撞判断。
+-- 旧模式保持从上到下的 first-fit。均匀模式先做碰撞检查，再优先选择
+-- 与已用轨道距离较远的空轨道，避免弹幕只集中在画面中心附近；
+-- 空轨道用完后，优先复用最久未使用的可用轨道。
 function get_position_y(font_size, appear_time, text_length, resolution_x, roll_time, array)
     if not options.balanced_lanes then
         for i = 1, array.rows do
@@ -717,14 +717,36 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    local best_row, best_empty, best_time, best_distance = nil, false, math.huge, math.huge
-    local center = (array.rows + 1) / 2
+    local best_row = nil
+    local best_empty = false
+    local best_time = math.huge
+    local best_spread = -1
     local preferred_side = array.next_side or -1
+    local center = (array.rows + 1) / 2
+
     for i = 1, array.rows do
         if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
             local empty = array:is_empty(i)
             local previous_time = array:get_time(i)
-            local distance = math.abs(i - center)
+            local spread = math.huge
+
+            if empty then
+                -- 以离最近已用轨道的距离衡量分散程度；首条弹幕放在中心。
+                local has_used_row = false
+                for j = 1, array.rows do
+                    if not array:is_empty(j) then
+                        has_used_row = true
+                        spread = math.min(spread, math.abs(i - j))
+                    end
+                end
+                if not has_used_row then
+                    spread = -math.abs(i - center)
+                end
+            else
+                -- 已使用轨道之间优先回收最久未用的轨道，减少连续弹幕挤在同一行。
+                spread = -math.abs(i - center) * 0.001
+            end
+
             local choose = false
             if best_row == nil then
                 choose = true
@@ -733,32 +755,28 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
             elseif not empty and best_empty then
                 choose = false
             elseif empty and best_empty then
-                if distance < best_distance then
+                if spread > best_spread then
                     choose = true
-                elseif distance == best_distance then
+                elseif spread == best_spread then
                     local side = i - center
                     local best_side = best_row - center
-                    if side ~= 0 and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0)) and
-                       not ((best_side > 0 and preferred_side > 0) or (best_side < 0 and preferred_side < 0)) then
-                        choose = true
-                    end
+                    local matches_preferred = side ~= 0 and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0))
+                    local best_matches_preferred = best_side ~= 0 and ((best_side > 0 and preferred_side > 0) or (best_side < 0 and preferred_side < 0))
+                    if matches_preferred and not best_matches_preferred then choose = true end
                 end
             else
                 if previous_time < best_time then
                     choose = true
-                elseif previous_time == best_time and distance < best_distance then
+                elseif previous_time == best_time and spread > best_spread then
                     choose = true
-                elseif previous_time == best_time and distance == best_distance then
-                    local side = i - center
-                    local best_side = best_row - center
-                    if side ~= 0 and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0)) and
-                       not ((best_side > 0 and preferred_side > 0) or (best_side < 0 and preferred_side < 0)) then
-                        choose = true
-                    end
                 end
             end
+
             if choose then
-                best_row, best_empty, best_time, best_distance = i, empty, previous_time, distance
+                best_row = i
+                best_empty = empty
+                best_time = previous_time
+                best_spread = spread
             end
         end
     end
