@@ -732,14 +732,12 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
                 row_order[#row_order + 1] = row
             end
 
-            -- Fisher-Yates shuffle：随机排列后遇到的第一条安全轨道，
-            -- 在该区域全部安全轨道之间具有均等的被选机会。
-            for i = #row_order, 2, -1 do
-                local j = math.random(i)
+            -- 懒式 Fisher-Yates：每次只随机抽查一条尚未检查的轨道，
+            -- 找到安全轨道就停止，且第一条安全轨道在所有安全行中等概率。
+            for i = 1, #row_order do
+                local j = math.random(i, #row_order)
                 row_order[i], row_order[j] = row_order[j], row_order[i]
-            end
-
-            for _, row in ipairs(row_order) do
+                local row = row_order[i]
                 if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
                     safe_row_by_zone[zone] = row
                     break
