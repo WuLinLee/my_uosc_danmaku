@@ -3,6 +3,50 @@ local utils = require 'mp.utils'
 local s2t   = require("dicts/s2t_chars")
 local t2s   = require("dicts/t2s_chars")
 local string_byte = string.byte
+local mp = require("mp")
+
+-- Instrument only requests that can be part of danmaku matching/loading.
+-- call_cmd_async is provided by the upstream utils module, loaded before parse.lua.
+if type(call_cmd_async) == "function"
+    and not rawget(_G, "__uosc_danmaku_request_timing_installed") then
+    local original_call_cmd_async = call_cmd_async
+    call_cmd_async = function(args, callback)
+        local request_kind
+        if type(args) == "table" then
+            for _, arg in ipairs(args) do
+                if type(arg) == "string" then
+                    if arg:find("/api/v2/comment/", 1, true)
+                        or arg:find("/api/v2/extcomment", 1, true)
+                        or arg:find("?ac=dm&url=", 1, true) then
+                        request_kind = "comment fetch"
+                        break
+                    elseif arg:find("/api/v2/match", 1, true) then
+                        request_kind = "episode match"
+                    elseif arg:find("/api/v2/bangumi/", 1, true) then
+                        request_kind = "episode list"
+                    end
+                end
+            end
+        end
+
+        if not request_kind then
+            return original_call_cmd_async(args, callback)
+        end
+
+        local started_at = mp.get_time()
+        msg.verbose("[danmaku request] start: " .. request_kind)
+        return original_call_cmd_async(args, function(err, output)
+            local elapsed = math.max(0, mp.get_time() - started_at)
+            local output_bytes = type(output) == "string" and #output or 0
+            msg.verbose(string.format(
+                "[danmaku request] %s completed in %.3fs (%s, %d bytes)",
+                request_kind, elapsed, err and "error" or "ok", output_bytes
+            ))
+            if callback then return callback(err, output) end
+        end)
+    end
+    rawset(_G, "__uosc_danmaku_request_timing_installed", true)
+end
 
 -- Match the upstream get_str_width heuristic without its unused first byte-counting pass.
 -- A bounded per-conversion cache below avoids remeasuring common repeated comments.
