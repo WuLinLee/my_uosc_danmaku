@@ -763,71 +763,56 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    local best_used_row = nil
-    local best_used_time = -math.huge
-    local best_used_center_distance = math.huge
-    local best_empty_row = nil
-    local best_empty_spread = -1
-    local best_empty_side_match = false
-    local preferred_side = array.next_side or -1
+    local best_row, best_empty, best_time, best_distance = nil, false, math.huge, math.huge
     local center = (array.rows + 1) / 2
-    local has_used_row = false
-
-    for j = 1, array.rows do
-        if not array:is_empty(j) then
-            has_used_row = true
-            break
-        end
-    end
-
+    local preferred_side = array.next_side or -1
     for i = 1, array.rows do
         if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
-            if not array:is_empty(i) then
-                -- 选最近用过且仍安全的轨道，使空档尽量短，同时不发生碰撞。
-                local previous_time = array:get_time(i)
-                local center_distance = math.abs(i - center)
-                if best_used_row == nil
-                    or previous_time > best_used_time
-                    or (previous_time == best_used_time and center_distance < best_used_center_distance) then
-                    best_used_row = i
-                    best_used_time = previous_time
-                    best_used_center_distance = center_distance
-                end
-            elseif best_used_row == nil then
-                local spread = math.huge
-                if has_used_row then
-                    for j = 1, array.rows do
-                        if not array:is_empty(j) then
-                            spread = math.min(spread, math.abs(i - j))
-                        end
+            local empty = array:is_empty(i)
+            local previous_time = array:get_time(i)
+            local distance = math.abs(i - center)
+            local choose = false
+            if best_row == nil then
+                choose = true
+            elseif empty and not best_empty then
+                choose = true
+            elseif not empty and best_empty then
+                choose = false
+            elseif empty and best_empty then
+                if distance < best_distance then
+                    choose = true
+                elseif distance == best_distance then
+                    local side = i - center
+                    local best_side = best_row - center
+                    if side ~= 0 and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0)) and
+                       not ((best_side > 0 and preferred_side > 0) or (best_side < 0 and preferred_side < 0)) then
+                        choose = true
                     end
-                else
-                    -- 第一条弹幕靠近中心，后续再按最大间距扩展。
-                    spread = -math.abs(i - center)
                 end
-
-                local side = i - center
-                local matches_preferred = side ~= 0
-                    and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0))
-                if best_empty_row == nil
-                    or spread > best_empty_spread
-                    or (spread == best_empty_spread and matches_preferred and not best_empty_side_match) then
-                    best_empty_row = i
-                    best_empty_spread = spread
-                    best_empty_side_match = matches_preferred
+            else
+                if previous_time < best_time then
+                    choose = true
+                elseif previous_time == best_time and distance < best_distance then
+                    choose = true
+                elseif previous_time == best_time and distance == best_distance then
+                    local side = i - center
+                    local best_side = best_row - center
+                    if side ~= 0 and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0)) and
+                       not ((best_side > 0 and preferred_side > 0) or (best_side < 0 and preferred_side < 0)) then
+                        choose = true
+                    end
                 end
+            end
+            if choose then
+                best_row, best_empty, best_time, best_distance = i, empty, previous_time, distance
             end
         end
     end
 
-    -- 已用轨道可安全复用时，优先使用最近的一条，而不是一味填满空轨道。
-    local chosen_row = best_used_row or best_empty_row
-    if chosen_row then
-        array:set_time_length(chosen_row, appear_time, text_length)
-        if best_used_row == nil then
-            array.next_side = -preferred_side
-        end
-        return 1 + (chosen_row - 1) * array.row_height
+    if best_row then
+        array:set_time_length(best_row, appear_time, text_length)
+        array.next_side = -preferred_side
+        return 1 + (best_row - 1) * array.row_height
     end
     return nil
 end
