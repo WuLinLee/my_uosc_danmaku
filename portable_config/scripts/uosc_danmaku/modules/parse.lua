@@ -745,7 +745,7 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
                         array:set_time_length(row, appear_time, text_length)
                         array.next_row_by_zone = array.next_row_by_zone or {}
                         array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
-                        -- 权重轮转独立于实际落点；偶发碰撞不会永久改变三区比例。
+                        -- 权重轮转独立于实际落点；偶发碰撞不会永久改变五区比例。
                         array.next_zone_slot = (slot % #zone_cycle) + 1
                         return 1 + (row - 1) * array.row_height
                     end
