@@ -10,7 +10,7 @@ local function danmaku_text_width(text, font_size)
     local unicode_width = 0
     local i, text_length = 1, #text
     while i <= text_length do
-        local b = string.byte(text, i)
+        local b = string_byte(text, i)
         local char_len
         if b < 128 then
             char_len = 1
