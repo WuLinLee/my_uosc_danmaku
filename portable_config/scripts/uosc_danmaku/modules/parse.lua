@@ -714,35 +714,53 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 只对 displayarea 实际布局高度分区。各区按 1:1.5:1:1.5:1 加权抽取，
-    -- 区域内在所有安全轨道中随机选一条；没有安全轨道的区域自动跳过。
-    -- 碰撞判断仍只检查每条轨道最近一条弹幕，避免引入历史队列的性能成本。
+    -- 只在 displayarea 实际布局高度内分区，并保留用户指定的五区权重。
+    -- 每个区域把轨道随机打乱后，一旦找到安全轨道就停止检查该区域；
+    -- 这样既能在区域内均匀随机选安全轨道，也避免每条弹幕都扫描全部轨道。
     local zone_weights = { 0.5, 0.7, 0.5, 1, 0.7 }
-    local safe_rows_by_zone = { {}, {}, {}, {}, {} }
+    local safe_row_by_zone = {}
     local row_count = array.rows
 
-    for row = 1, row_count do
-        if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
-            -- 按每条轨道所在的纵向位置归区；当轨道很少时仍让顶部/底部对应外侧区域。
-            local zone = math.floor(((row - 0.5) * 5) / row_count) + 1
-            zone = math.max(1, math.min(5, zone))
-            safe_rows_by_zone[zone][#safe_rows_by_zone[zone] + 1] = row
+    for zone = 1, 5 do
+        local zone_start = math.floor((zone - 1) * row_count / 5) + 1
+        local zone_end = math.floor(zone * row_count / 5)
+        local zone_rows = zone_end - zone_start + 1
+
+        if zone_rows > 0 then
+            local row_order = {}
+            for row = zone_start, zone_end do
+                row_order[#row_order + 1] = row
+            end
+
+            -- Fisher-Yates shuffle：随机排列后遇到的第一条安全轨道，
+            -- 在该区域全部安全轨道之间具有均等的被选机会。
+            for i = #row_order, 2, -1 do
+                local j = math.random(i)
+                row_order[i], row_order[j] = row_order[j], row_order[i]
+            end
+
+            for _, row in ipairs(row_order) do
+                if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
+                    safe_row_by_zone[zone] = row
+                    break
+                end
+            end
         end
     end
 
+    -- 只在确实有安全轨道的区域之间按权重抽签。
     local total_weight = 0
     for zone = 1, 5 do
-        if #safe_rows_by_zone[zone] > 0 then
+        if safe_row_by_zone[zone] then
             total_weight = total_weight + zone_weights[zone]
         end
     end
     if total_weight <= 0 then return nil end
 
-    -- 先按区域权重随机选区，再在该区域可用的安全轨道中均匀随机选行。
     local ticket = math.random() * total_weight
     local chosen_zone = nil
     for zone = 1, 5 do
-        if #safe_rows_by_zone[zone] > 0 then
+        if safe_row_by_zone[zone] then
             ticket = ticket - zone_weights[zone]
             if ticket < 0 then
                 chosen_zone = zone
@@ -751,17 +769,17 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         end
     end
 
+    -- 浮点边界保护。
     if not chosen_zone then
         for zone = 5, 1, -1 do
-            if #safe_rows_by_zone[zone] > 0 then
+            if safe_row_by_zone[zone] then
                 chosen_zone = zone
                 break
             end
         end
     end
 
-    local safe_rows = safe_rows_by_zone[chosen_zone]
-    local chosen_row = safe_rows[math.random(1, #safe_rows)]
+    local chosen_row = safe_row_by_zone[chosen_zone]
     array:set_time_length(chosen_row, appear_time, text_length)
     return 1 + (chosen_row - 1) * array.row_height
 end
@@ -1004,7 +1022,6 @@ function convert_danmaku_to_ass_events(force)
         -- 滚动弹幕 (类型 1, 2, 3)
         if danmaku_type >= 1 and danmaku_type <= 3 then
             style = "R2L"
-            local text_length = get_str_width(text, event_fontsize)
             local text_length = get_str_width(text, event_fontsize)
             local x1 = res_x + text_length / 2
             local x2 = -text_length / 2
