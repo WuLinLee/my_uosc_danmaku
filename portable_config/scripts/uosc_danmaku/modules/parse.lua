@@ -212,6 +212,18 @@ local function ch_convert_cached(text)
     return converted
 end
 
+-- 合并重复弹幕的高亮颜色。单条弹幕保留原颜色；群体响应越大，高亮越醒目。
+-- 这些值使用 RGB，后续 ASS 输出会统一转换为 BGR。
+local function duplicate_burst_color(count)
+    count = tonumber(count) or 1
+    if count >= 32 then return 0xFF2D75 end -- 32+: 亮粉红
+    if count >= 16 then return 0xFF5A36 end -- 16-31: 橙红
+    if count >= 8 then return 0xFFCC33 end  -- 8-15: 金黄
+    if count >= 4 then return 0x29B6F6 end  -- 4-7: 鲜蓝
+    if count >= 2 then return 0x4DD0E1 end  -- 2-3: 青绿
+    return nil
+end
+
 -- 合并重复弹幕
 local function merge_duplicate_danmaku(danmakus, threshold)
     if not threshold or tonumber(threshold) < 0 then return danmakus end
@@ -302,11 +314,8 @@ local function merge_duplicate_danmaku(danmakus, threshold)
                 text = base.text,
                 source = base.source,
                 orig_time = base.orig_time,
+                merge_count = count > 1 and count or nil,
             }
-            if count > 1 then
-                -- Show the group size even for exactly simultaneous pairs.
-                danmaku.text = danmaku.text .. string.format("x%d", count)
-            end
 
             table.insert(merged, danmaku)
             i = j
@@ -970,6 +979,8 @@ function convert_danmaku_to_ass_events(force)
 
         -- 颜色从十进制转为 BGR Hex
         local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
+        local burst_color = duplicate_burst_color(d.merge_count)
+        if burst_color then color = burst_color end
         local color_hex = string.format("%06X", color)
         local r = string.sub(color_hex, 1, 2)
         local g = string.sub(color_hex, 3, 4)
