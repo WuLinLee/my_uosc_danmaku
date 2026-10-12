@@ -528,7 +528,7 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     -- Keep the repair budget bounded so density remains a meaningful intensity control.
     local max_repairs = math.min(
         512,
-        math.floor(dropped_count * 0.25),
+        math.max(1, math.floor(dropped_count * 0.25 + 0.5)),
         math.max(1, math.floor(#candidates * (1 - density_ratio) * 0.15 + 0.5))
     )
     local max_gap = math.max(1.5, half_window * (1.1 - 0.55 * density_ratio))
