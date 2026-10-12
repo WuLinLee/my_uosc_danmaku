@@ -716,20 +716,31 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 将轨道分成上、中、下三个区域，按区域轮转分配，避免偏向中心或上下边缘。
-    -- 如果当前区域没有安全轨道，才尝试其他区域；每个区域内也轮转行，保持分配均匀。
-    array.next_zone = array.next_zone or 1
-    array.next_row_by_zone = array.next_row_by_zone or {}
+    -- 分成上、中、下三个区域轮转；中心区域略高权重（40%），上下区域各 30%。
+    -- 区域暂时没有安全轨道时，才依次尝试另外的区域；每个区域内也轮换行。
+    local zone_cycle = { 2, 1, 3, 2, 1, 3, 2, 1, 3, 2 }
+    local slot = array.next_zone_slot or 1
     local row_count = array.rows
+    local tried_zones = {}
 
     for zone_offset = 0, 2 do
-        local zone = ((array.next_zone + zone_offset - 1) % 3) + 1
+        local cycle_index = ((slot + zone_offset - 1) % #zone_cycle) + 1
+        local zone = zone_cycle[cycle_index]
+        while tried_zones[zone] do
+            zone_offset = zone_offset + 1
+            if zone_offset > 9 then break end
+            cycle_index = ((slot + zone_offset - 1) % #zone_cycle) + 1
+            zone = zone_cycle[cycle_index]
+        end
+        if zone_offset > 9 then break end
+        tried_zones[zone] = true
+
         local zone_start = math.floor((zone - 1) * row_count / 3) + 1
         local zone_end = math.floor(zone * row_count / 3)
         local zone_rows = zone_end - zone_start + 1
 
         if zone_rows > 0 then
-            local first_row = array.next_row_by_zone[zone]
+            local first_row = array.next_row_by_zone and array.next_row_by_zone[zone]
             if not first_row or first_row < zone_start or first_row > zone_end then
                 first_row = zone_start
             end
@@ -738,15 +749,18 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
                 local row = zone_start + ((first_row - zone_start + row_offset) % zone_rows)
                 if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
                     array:set_time_length(row, appear_time, text_length)
+                    array.next_row_by_zone = array.next_row_by_zone or {}
                     array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
-                    -- 下一条优先进入下一个区域；若受碰撞限制换了区域，也从实际使用的区域继续轮转。
-                    array.next_zone = (zone % 3) + 1
+                    -- 权重轮转独立于实际落点；偶发碰撞不会永久改变三区比例。
+                    array.next_zone_slot = (slot % #zone_cycle) + 1
                     return 1 + (row - 1) * array.row_height
                 end
             end
         end
     end
 
+    -- 此次没有可用轨道时也推进权重，避免拥挤区反复获得优先权。
+    array.next_zone_slot = (slot % #zone_cycle) + 1
     return nil
 end
 
