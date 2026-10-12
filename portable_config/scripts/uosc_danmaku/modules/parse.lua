@@ -762,7 +762,7 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     if not options.balanced_lanes then
         for i = 1, array.rows do
             if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
-                array:set_time_length(i, appear_time, text_length)
+                array:set_scrolling_time_length(i, appear_time, text_length)
                 return 1 + (i - 1) * array.row_height
             end
         end
