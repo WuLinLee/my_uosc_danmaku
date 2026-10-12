@@ -31,8 +31,8 @@ options = {
     style_path = "",
     -- 弹幕渲染方式：overlay 使用 OSD 叠层；ass 生成临时 ASS 字幕轨
     render_mode = "overlay",
-    -- 指定合并重复弹幕的时间间隔的容差值，单位为秒。默认值: -1，表示禁用
-    merge_tolerance = -1,
+    -- 指定合并重复弹幕的时间间隔的容差值，单位为秒。默认值: 0，表示仅合并时间相同的重复弹幕
+    merge_tolerance = 0,
     -- 合并重复弹幕时是否强制合并类型和颜色不同的弹幕。默认值: false，表示仅合并类型和颜色相同的弹幕
     merge_without_style = false,
     -- 指定弹幕关联历史记录文件的路径，支持绝对路径和相对路径
@@ -42,7 +42,7 @@ options = {
     -- 中文简繁转换。0-不转换，1-转换为简体，2-转换为繁体
     chConvert = 0,
     --滚动弹幕的显示时间
-    scrolltime = 15,
+    scrolltime = 10,
     --固定弹幕的显示时间
     fixtime = 5,
     --字体
@@ -64,7 +64,7 @@ options = {
     -- 是否优先使用上下空间更均匀的弹幕轨道分配
     balanced_lanes = true,
     --描边 0-4
-    outline = 1.0,
+    outline = 1,
     -- 限制屏幕中同时显示的最大弹幕数量，0 表示不限制
     max_screen_danmaku = 0,
     -- 外部屏蔽规则文件路径；兼容原有 XML/JSON/TXT 规则文件
