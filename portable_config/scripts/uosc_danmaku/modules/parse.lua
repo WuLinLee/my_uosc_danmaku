@@ -987,10 +987,16 @@ function convert_danmaku_to_ass_events(force)
         local appear_time = ev.start_time
         local danmaku_type = d.type
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
-        if (tonumber(d.merge_count) or 0) > 1 then
-            clean_text = clean_text .. string.rep("！", duplicate_burst_exclamation_count(d.merge_count))
+        local merge_count = tonumber(d.merge_count) or 1
+        local is_merged = merge_count > 1
+        local event_fontsize = is_merged and math.max(1, math.floor(fontsize * 1.2 + 0.5)) or fontsize
+        if is_merged then
+            clean_text = clean_text .. string.rep("！", duplicate_burst_exclamation_count(merge_count))
         end
         local text = ass_escape(clean_text)
+        -- ASS 字幕模式直接使用内联字号；叠加层模式由 event.font_size 处理，避免双重放大。
+        local font_size_tag = (is_merged and options.render_mode == "ass")
+            and string.format("{\\fs%d}", event_fontsize) or ""
 
         -- 颜色从十进制转为 BGR Hex
         local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
@@ -1008,7 +1014,7 @@ function convert_danmaku_to_ass_events(force)
         -- 滚动弹幕 (类型 1, 2, 3)
         if danmaku_type >= 1 and danmaku_type <= 3 then
             style = "R2L"
-            local text_length = get_str_width(text, fontsize)
+            local text_length = get_str_width(text, event_fontsize)
             local x1 = res_x + text_length / 2
             local x2 = -text_length / 2
             local y = get_position_y(fontsize, appear_time, text_length, res_x, scrolltime, roll_array)
@@ -1039,7 +1045,7 @@ function convert_danmaku_to_ass_events(force)
         end
 
         if style and effect then
-            text = effect .. color_text .. text
+            text = effect .. color_text .. font_size_tag .. text
             local event = {
                 orig_time = ev.orig_time,
                 start_time = ev.start_time,
@@ -1052,6 +1058,7 @@ function convert_danmaku_to_ass_events(force)
                 move = move,
                 layer = (style == "R2L") and 0 or 1,
                 source = d.source,
+                font_size = is_merged and event_fontsize or nil,
             }
             table.insert(ass_events, event)
             COMMENTS = ass_events
