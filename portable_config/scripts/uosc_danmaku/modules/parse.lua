@@ -491,7 +491,13 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     local density_ratio = density / 100
     local base_budget = (8 + math.pow(density_ratio, 1.4) * 42) * area_factor
     local budget = base_budget * (0.5 + 0.5 * density_ratio)
-    local dropped = {}
+    -- Use deterministic temporal quotas instead of independent per-comment coin flips.
+    -- That keeps each busy time slice represented while still thinning overload.
+    local bucket_span = density_clamp(
+        (tonumber(scroll_time) or 15) * (0.08 + 0.12 * (1 - density_ratio)),
+        0.5, 2.0
+    )
+    local buckets = {}
     local left, right = 1, 1
 
     for i, candidate in ipairs(candidates) do
@@ -504,101 +510,80 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         end
 
         local local_load = prefix[right] - prefix[left - 1]
-        if not candidate.protected and local_load > budget then
-            local overload = local_load / math.max(0.001, budget) - 1
-            local pressure = 1 - math.exp(-1.05 * math.pow(overload, 1.25))
-            local priority = density_information_score(candidate.text)
-            candidate.priority = priority
-            local low_density_boost = 1 + 0.3 * math.pow(1 - density_ratio, 1.5)
-            local drop_chance = density_clamp(pressure * (1.08 - priority * 0.5) * low_density_boost, 0, 0.98)
-            local hash_key = string.format("%.0f|%s|%s|%d", math.floor(candidate.time * 1000 + 0.5), candidate.mode, candidate.text, candidate.index)
-            if density_stable_unit_hash(hash_key) < drop_chance then
-                dropped[candidate.index] = true
+        local keep_ratio = 1
+        if local_load > budget then
+            -- Approximate the original soft budget's keep rate, but apply it as a
+            -- quota across a time bucket so overload cannot randomly erase a whole slice.
+            keep_ratio = density_clamp(budget / math.max(0.001, local_load), 0, 1)
+        end
+
+        local bucket_index = math.floor(candidate.time / bucket_span)
+        local bucket = buckets[bucket_index]
+        if not bucket then
+            bucket = { items = {}, keep_ratio = 1 }
+            buckets[bucket_index] = bucket
+        end
+        bucket.items[#bucket.items + 1] = candidate
+        bucket.keep_ratio = math.min(bucket.keep_ratio, keep_ratio)
+    end
+
+    local keep = {}
+    for _, bucket in pairs(buckets) do
+        local protected = {}
+        local selectable = {}
+        for _, candidate in ipairs(bucket.items) do
+            if candidate.protected then
+                protected[#protected + 1] = candidate
+            else
+                selectable[#selectable + 1] = candidate
             end
         end
-    end
 
-    if next(dropped) == nil then return items end
-
-    -- Independent drop decisions can accidentally leave long temporal holes. Repair only
-    -- gaps created by this filter, by restoring a small, high-value subset of dropped
-    -- comments. Original timestamps are never changed and density 100 remains untouched.
-    local dropped_count = 0
-    for _ in pairs(dropped) do dropped_count = dropped_count + 1 end
-
-    -- Keep the repair budget bounded so density remains a meaningful intensity control.
-    local max_repairs = math.min(
-        512,
-        math.max(1, math.floor(dropped_count * 0.25 + 0.5)),
-        math.max(1, math.floor(#candidates * (1 - density_ratio) * 0.15 + 0.5))
-    )
-    local max_gap = math.max(1.5, half_window * (1.1 - 0.55 * density_ratio))
-    local modes = { "rtl", "top", "bottom" }
-    local kept_by_mode = { rtl = {}, top = {}, bottom = {} }
-    for i, candidate in ipairs(candidates) do
-        candidate.position = i
-        if not dropped[candidate.index] then
-            local mode_kept = kept_by_mode[candidate.mode]
-            mode_kept[#mode_kept + 1] = candidate
+        for _, candidate in ipairs(protected) do
+            keep[candidate.index] = true
         end
-    end
 
-    -- Repair the widest fillable interior gap first, separately for scrolling, top,
-    -- and bottom comments. Never invent timestamps or fill naturally sparse edges.
-    for _ = 1, max_repairs do
-        local widest_gap = max_gap
-        local best_mode_kept = nil
-        local best_gap_index = nil
-        local best_candidate = nil
-        local best_priority = -math.huge
+        if bucket.keep_ratio >= 1 or #selectable == 0 then
+            for _, candidate in ipairs(selectable) do
+                keep[candidate.index] = true
+            end
+        else
+            -- Keep a proportional quota, but never drop every ordinary comment
+            -- from a time bucket that contains candidates. Select one representative
+            -- from each chronological stratum to reduce clusters and long holes.
+            local target = math.max(1, math.ceil(#selectable * bucket.keep_ratio))
+            target = math.min(target, #selectable)
+            for slot = 1, target do
+                local first = math.floor((slot - 1) * #selectable / target) + 1
+                local last = math.floor(slot * #selectable / target)
+                local best = nil
+                local best_priority = -math.huge
+                local best_tie = -math.huge
 
-        for _, mode in ipairs(modes) do
-            local mode_kept = kept_by_mode[mode]
-            for gap_index = 1, #mode_kept - 1 do
-                local left_kept = mode_kept[gap_index]
-                local right_kept = mode_kept[gap_index + 1]
-                local gap = right_kept.time - left_kept.time
-                if gap >= widest_gap then
-                    local midpoint = (left_kept.time + right_kept.time) / 2
-                    local gap_candidate = nil
-                    local gap_distance = math.huge
-                    local gap_priority = -math.huge
-
-                    for position = left_kept.position + 1, right_kept.position - 1 do
-                        local candidate = candidates[position]
-                        if candidate.mode == mode and dropped[candidate.index] then
-                            local distance = math.abs(candidate.time - midpoint)
-                            local priority = candidate.priority or density_information_score(candidate.text)
-                            if distance < gap_distance
-                                or (distance == gap_distance and priority > gap_priority) then
-                                gap_candidate = candidate
-                                gap_distance = distance
-                                gap_priority = priority
-                            end
-                        end
-                    end
-
-                    if gap_candidate
-                        and (gap > widest_gap
-                            or (gap == widest_gap and gap_priority > best_priority)) then
-                        widest_gap = gap
-                        best_mode_kept = mode_kept
-                        best_gap_index = gap_index
-                        best_candidate = gap_candidate
-                        best_priority = gap_priority
+                for position = first, last do
+                    local candidate = selectable[position]
+                    local priority = density_information_score(candidate.text)
+                    local tie_key = string.format(
+                        "%.0f|%s|%s|%d",
+                        math.floor(candidate.time * 1000 + 0.5),
+                        candidate.mode, candidate.text, candidate.index
+                    )
+                    local tie = density_stable_unit_hash(tie_key)
+                    if priority > best_priority or (priority == best_priority and tie > best_tie) then
+                        best = candidate
+                        best_priority = priority
+                        best_tie = tie
                     end
                 end
+
+                if best then keep[best.index] = true end
             end
         end
-
-        if not best_candidate then break end
-        dropped[best_candidate.index] = nil
-        table.insert(best_mode_kept, best_gap_index + 1, best_candidate)
     end
 
     local filtered = {}
     for index, item in ipairs(items) do
-        if not dropped[index] then filtered[#filtered + 1] = item end
+        if keep[index] then filtered[#filtered + 1] = item end
     end
     return filtered
 end
