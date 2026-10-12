@@ -518,6 +518,78 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     end
 
     if next(dropped) == nil then return items end
+
+    -- Independent drop decisions can accidentally leave long temporal holes. Repair only
+    -- gaps created by this filter, by restoring a small, high-value subset of dropped
+    -- comments. Original timestamps are never changed and density 100 remains untouched.
+    local dropped_count = 0
+    for _ in pairs(dropped) do dropped_count = dropped_count + 1 end
+
+    -- Keep the repair budget bounded so density remains a meaningful intensity control.
+    local max_repairs = math.min(
+        512,
+        math.floor(dropped_count * 0.25),
+        math.max(1, math.floor(#candidates * (1 - density_ratio) * 0.15 + 0.5)
+    )
+    local max_gap = math.max(1.5, half_window * (1.1 - 0.55 * density_ratio))
+    local kept = {}
+    for i, candidate in ipairs(candidates) do
+        candidate.position = i
+        if not dropped[candidate.index] then
+            kept[#kept + 1] = candidate
+        end
+    end
+
+    -- Greedily repair the widest fillable interior gap first. A candidate may be
+    -- restored only if the density pass actually dropped it and it lies between
+    -- two retained comments; naturally sparse sections and timeline edges are intact.
+    for _ = 1, max_repairs do
+        local widest_gap = max_gap
+        local best_gap_index = nil
+        local best_candidate = nil
+        local best_distance = math.huge
+        local best_priority = -math.huge
+
+        for gap_index = 1, #kept - 1 do
+            local left_kept = kept[gap_index]
+            local right_kept = kept[gap_index + 1]
+            local gap = right_kept.time - left_kept.time
+            if gap > widest_gap then
+                local midpoint = (left_kept.time + right_kept.time) / 2
+                local gap_candidate = nil
+                local gap_distance = math.huge
+                local gap_priority = -math.huge
+
+                for position = left_kept.position + 1, right_kept.position - 1 do
+                    local candidate = candidates[position]
+                    if dropped[candidate.index] then
+                        local distance = math.abs(candidate.time - midpoint)
+                        local priority = density_information_score(candidate.text)
+                        if distance < gap_distance
+                            or (distance == gap_distance and priority > gap_priority) then
+                            gap_candidate = candidate
+                            gap_distance = distance
+                            gap_priority = priority
+                        end
+                    end
+                end
+
+                if gap_candidate and (gap > widest_gap
+                    or (gap == widest_gap and gap_priority > best_priority)) then
+                    widest_gap = gap
+                    best_gap_index = gap_index
+                    best_candidate = gap_candidate
+                    best_distance = gap_distance
+                    best_priority = gap_priority
+                end
+            end
+        end
+
+        if not best_candidate then break end
+        dropped[best_candidate.index] = nil
+        table.insert(kept, best_gap_index + 1, best_candidate)
+    end
+
     local filtered = {}
     for index, item in ipairs(items) do
         if not dropped[index] then filtered[#filtered + 1] = item end
