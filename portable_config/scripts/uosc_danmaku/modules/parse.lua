@@ -223,16 +223,6 @@ local function duplicate_burst_color(count)
     return nil
 end
 
--- 按合并数量返回中文全角感叹号数量；单条弹幕不追加标点。
-local function duplicate_burst_exclamation_count(count)
-    count = tonumber(count) or 1
-    if count >= 11 then return 4 end
-    if count >= 7 then return 3 end
-    if count >= 4 then return 2 end
-    if count >= 2 then return 1 end
-    return 0
-end
-
 -- 合并重复弹幕
 local function merge_duplicate_danmaku(danmakus, threshold)
     if not threshold or tonumber(threshold) < 0 then return danmakus end
@@ -998,9 +988,6 @@ function convert_danmaku_to_ass_events(force)
             font_scale = 1.1
         end
         local event_fontsize = is_merged and math.max(1, math.floor(fontsize * font_scale + 0.5)) or fontsize
-        if is_merged then
-            clean_text = clean_text .. string.rep("！", duplicate_burst_exclamation_count(merge_count))
-        end
         local text = ass_escape(clean_text)
         -- ASS 字幕模式直接使用内联字号；叠加层模式由 event.font_size 处理，避免双重放大。
         local font_size_tag = (is_merged and options.render_mode == "ass")
