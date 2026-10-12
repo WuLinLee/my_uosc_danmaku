@@ -224,6 +224,17 @@ local function duplicate_burst_color(count)
     return nil
 end
 
+-- 按合并数量返回中文全角感叹号数量；单条弹幕不追加标点。
+local function duplicate_burst_exclamation_count(count)
+    count = tonumber(count) or 1
+    if count >= 32 then return 5 end
+    if count >= 16 then return 4 end
+    if count >= 8 then return 3 end
+    if count >= 4 then return 2 end
+    if count >= 2 then return 1 end
+    return 0
+end
+
 -- 合并重复弹幕
 local function merge_duplicate_danmaku(danmakus, threshold)
     if not threshold or tonumber(threshold) < 0 then return danmakus end
@@ -441,6 +452,9 @@ local function density_stable_unit_hash(text)
 end
 
 local function density_mode(danmaku)
+    if danmaku and (tonumber(danmaku.merge_count) or 0) > 1 then
+        return "top"
+    end
     local kind = tonumber(danmaku and danmaku.type) or 1
     if kind == 5 then return "top" end
     if kind == 4 then return "bottom" end
@@ -766,12 +780,13 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
 end
 
 -- 固定弹幕 Y 坐标算法
-function get_fixed_y(font_size, appear_time, fixtime, array, from_top)
+function get_fixed_y(font_size, appear_time, fixtime, array, from_top, max_rows)
+    local row_limit = math.max(1, math.min(array.rows, tonumber(max_rows) or array.rows))
     local row_start, row_end, row_step
     if from_top then
-        row_start, row_end, row_step = 1, array.rows, 1
+        row_start, row_end, row_step = 1, row_limit, 1
     else
-        row_start, row_end, row_step = array.rows, 1, -1
+        row_start, row_end, row_step = row_limit, 1, -1
     end
 
     for i = row_start, row_end, row_step do
@@ -788,6 +803,30 @@ function get_fixed_y(font_size, appear_time, fixtime, array, from_top)
         end
     end
     -- 所有行都被占用，放弃渲染
+    return nil
+end
+
+-- 合并后的重复弹幕固定在画面垂直中心附近，并复用同一组固定弹幕轨道避免互相重叠。
+local function get_center_fixed_y(appear_time, fixtime, array)
+    local center = (array.rows + 1) / 2
+    local rows = {}
+    for i = 1, array.rows do rows[#rows + 1] = i end
+
+    table.sort(rows, function(a, b)
+        local distance_a = math.abs(a - center)
+        local distance_b = math.abs(b - center)
+        if distance_a == distance_b then return a < b end
+        return distance_a < distance_b
+    end)
+
+    for _, i in ipairs(rows) do
+        local previous_appear_time = array:get_time(i)
+        if array:is_empty(i) or appear_time - previous_appear_time > fixtime then
+            array:set_time_length(i, appear_time, 0)
+            return (i - 1) * array.row_height + 1
+        end
+    end
+    -- 中心附近所有轨道都被占用，放弃渲染而不是延迟弹幕。
     return nil
 end
 
@@ -937,20 +976,23 @@ function convert_danmaku_to_ass_events(force)
 
     local row_spacing = tonumber(options.row_spacing) or 1.2
     local roll_array = DanmakuArray:new(res_x, layout_res_y, fontsize, row_spacing)
-    local top_array = DanmakuArray:new(res_x, layout_res_y, fontsize, row_spacing)
+    -- 固定弹幕共用整屏轨道，普通顶部/底部弹幕仍限制在 displayarea 范围内。
+    local top_array = DanmakuArray:new(res_x, res_y, fontsize, row_spacing)
+    local fixed_rows = math.max(1, math.floor(layout_res_y / top_array.row_height))
 
-    -- 预处理弹幕，先计算时间段以便进行数量限制
+    -- 预处理弹幕，先计算时间段以便进行数量限制。
+    -- 内部类型 6 专用于已合并的重复弹幕：固定显示在画面中心附近。
     local pre_events = {}
     for _, d in ipairs(danmakus) do
-        local time = d.type == 1 and math.floor(d.time + 0.5) or d.time
-        local orig_time = d.type == 1 and math.floor(d.orig_time + 0.5) or d.orig_time
+        local danmaku_type = (tonumber(d.merge_count) or 0) > 1 and 6 or d.type
+        local time = danmaku_type == 1 and math.floor(d.time + 0.5) or d.time
+        local orig_time = danmaku_type == 1 and math.floor(d.orig_time + 0.5) or d.orig_time
         local appear_time = time
-        local danmaku_type = d.type
 
         local end_time = nil
         if danmaku_type >= 1 and danmaku_type <= 3 then
             end_time = appear_time + scrolltime
-        elseif danmaku_type == 5 or danmaku_type == 4 then
+        elseif danmaku_type == 5 or danmaku_type == 4 or danmaku_type == 6 then
             end_time = appear_time + fixtime
         end
 
@@ -969,13 +1011,12 @@ function convert_danmaku_to_ass_events(force)
     for _, ev in ipairs(pre_events) do
         local d = ev.danmaku
         local appear_time = ev.start_time
-        local danmaku_type = d.type
+        local danmaku_type = (tonumber(d.merge_count) or 0) > 1 and 6 or d.type
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
-        local bold_count_tag = "\\b1"
+        if (tonumber(d.merge_count) or 0) > 1 then
+            clean_text = clean_text .. string.rep("！", duplicate_burst_exclamation_count(d.merge_count))
+        end
         local text = ass_escape(clean_text)
-                    :gsub("x(%d+)$", function(count)
-                        return "{" .. bold_count_tag .. "\\i1}x" .. count
-                    end)
 
         -- 颜色从十进制转为 BGR Hex
         local color = math.max(0, math.min(d.color or 0xFFFFFF, 0xFFFFFF))
@@ -1002,11 +1043,21 @@ function convert_danmaku_to_ass_events(force)
                 move = {x1, y, x2, y}
             end
 
+        -- 合并后的重复弹幕固定在画面中心附近；沿用 TOP 样式并用显式坐标定位。
+        elseif danmaku_type == 6 then
+            style = "TOP"
+            local x = res_x / 2
+            local y = get_center_fixed_y(appear_time, fixtime, top_array)
+            if y then
+                effect = string.format("{\\pos(%d, %d)}", x, y)
+                pos = {x, y}
+            end
+
         -- 顶部弹幕 (类型 5)
         elseif danmaku_type == 5 then
             style = "TOP"
             local x = res_x / 2
-            local y = get_fixed_y(fontsize, appear_time, fixtime, top_array, true)
+            local y = get_fixed_y(fontsize, appear_time, fixtime, top_array, true, fixed_rows)
             if y then
                 effect = string.format("{\\pos(%d, %d)}", x, y)
                 pos = {x, y}
@@ -1016,7 +1067,7 @@ function convert_danmaku_to_ass_events(force)
         elseif danmaku_type == 4 then
             style = "BTM"
             local x = res_x / 2
-            local y = get_fixed_y(fontsize, appear_time, fixtime, top_array, false)
+            local y = get_fixed_y(fontsize, appear_time, fixtime, top_array, false, fixed_rows)
             if y then
                 effect = string.format("{\\pos(%d, %d)}", x, y)
                 pos = {x, y}
