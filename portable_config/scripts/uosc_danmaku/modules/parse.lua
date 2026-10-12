@@ -501,6 +501,9 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         if normalized ~= "" and not candidate.protected then
             groups[normalized] = groups[normalized] or {}
             table.insert(groups[normalized], candidate)
+        else
+            -- Empty-text and protected candidates should never be dropped by this pass.
+            keep[candidate.index] = true
         end
     end
 
