@@ -485,9 +485,13 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     -- Unique comments remain visible; density controls how many copies survive, rather
     -- than globally deleting comments just because the whole screen is busy.
     local density_ratio = density / 100
-    local cluster_gap = density_clamp((tonumber(scroll_time) or 10) * 0.15, 1.0, 2.5)
+    -- A scrolling comment stays on screen for roughly scroll_time seconds.
+    -- Detect repeated spam across a meaningful part of that visibility interval;
+    -- the old ~1.5s gap split ordinary bursts into groups that were too small to filter.
+    local cluster_window = density_clamp((tonumber(scroll_time) or 10) * 0.8, 3.0, 12.0)
     local groups = {}
     local candidate_index = {}
+    local keep = {}
 
     for _, candidate in ipairs(candidates) do
         candidate_index[candidate.index] = true
@@ -507,27 +511,19 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
         end
     end
 
-    local keep = {}
-    for _, candidate in ipairs(candidates) do
-        if candidate.protected then
-            keep[candidate.index] = true
-        end
-    end
-
     for _, group in pairs(groups) do
         -- candidates are globally time-sorted, so each text group remains time-sorted.
         local cluster_start = 1
         while cluster_start <= #group do
             local cluster_end = cluster_start
             while cluster_end < #group
-                and group[cluster_end + 1].time - group[cluster_end].time <= cluster_gap do
+                and group[cluster_end + 1].time - group[cluster_start].time <= cluster_window do
                 cluster_end = cluster_end + 1
             end
 
             local cluster_size = cluster_end - cluster_start + 1
-            if cluster_size < 4 then
-                -- Don't suppress occasional repeated phrases; only treat sustained,
-                -- visibly repetitive bursts as spam.
+            if cluster_size < 3 then
+                -- Ignore isolated repetitions, but detect small sustained bursts too.
                 for i = cluster_start, cluster_end do
                     keep[group[i].index] = true
                 end
