@@ -283,22 +283,15 @@ local function merge_duplicate_danmaku(danmakus, threshold)
         local i = 1
         while i <= #group do
             local base = group[i]
-            local times = { base.time }
             local count = 1
             local j = i + 1
 
+            -- Anchor this burst to its first timestamp instead of chaining nearby
+            -- comments indefinitely. Every later member stays within threshold
+            -- of the group's first event.
             while j <= #group and abs(group[j].time - base.time) <= threshold do
-                times[#times+1] = group[j].time
                 count = count + 1
                 j = j + 1
-            end
-
-            local same_time = true
-            for k = 2, #times do
-                if times[k] ~= times[1] then
-                    same_time = false
-                    break
-                end
             end
 
             local danmaku = {
@@ -310,7 +303,8 @@ local function merge_duplicate_danmaku(danmakus, threshold)
                 source = base.source,
                 orig_time = base.orig_time,
             }
-            if count > 2 or not same_time then
+            if count > 1 then
+                -- Show the group size even for exactly simultaneous pairs.
                 danmaku.text = danmaku.text .. string.format("x%d", count)
             end
 
@@ -905,13 +899,10 @@ function convert_danmaku_to_ass_events(force)
         end
     end
 
-    -- 保留原行为：设置同屏上限且合并间隔 <= 0 时，实际合并窗口使用滚动时长；
-    -- 但不要改写 options.merge_tolerance，避免菜单显示值被静默覆盖。
-    local effective_merge_tolerance = tonumber(options.merge_tolerance) or -1
-    if tonumber(options.max_screen_danmaku) and tonumber(options.max_screen_danmaku) > 0 and effective_merge_tolerance <= 0 then
-        effective_merge_tolerance = tonumber(options.scrolltime) or 15
-    end
-    danmakus = merge_duplicate_danmaku(danmakus, effective_merge_tolerance)
+    -- Repetition aggregation and the simultaneous-screen cap are independent controls.
+    -- Never silently replace the user's merge interval with scrolltime when the cap is enabled.
+    local merge_tolerance = tonumber(options.merge_tolerance) or 0
+    danmakus = merge_duplicate_danmaku(danmakus, merge_tolerance)
 
     if #danmakus == 0 then
         if not force then
