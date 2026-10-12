@@ -781,7 +781,7 @@ local menu_items_config = {
     live_fps_mode = { title = "直播帧率", hint = options.live_fps_mode, original = options.live_fps_mode,
         choices = {"auto", "60", "80", "120", "display"}, footnote = "auto / 60 / 80 / 120 / display" },
     density = { title = "智能弹幕密度", hint = style_hint("density"), original = options.density,
-        scope = { min = 0, max = 100 }, integer = true, footnote = "输入 0-100；100 不进行智能密度筛选" },
+        scope = { min = 0, max = 100 }, integer = true, footnote = "100 原样显示；低于 100 按比例筛选短时间内相同文本的刷屏，独立内容不删；99 与 100 差异很小" },
     row_spacing = { title = "弹幕行间距", hint = style_hint("row_spacing"), original = options.row_spacing,
         scope = { min = 1, max = 2 }, decimals = 1, footnote = "输入 1.0-2.0；1.2 约增加 20% 行间距" },
     balanced_lanes = { title = "均匀分布弹幕轨道", hint = style_hint("balanced_lanes"), original = options.balanced_lanes,
