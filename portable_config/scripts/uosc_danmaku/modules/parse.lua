@@ -993,10 +993,8 @@ function convert_danmaku_to_ass_events(force)
         if merge_count >= 11 then
             font_scale = 1.3
         elseif merge_count >= 7 then
-            font_scale = 1.25
-        elseif merge_count >= 4 then
             font_scale = 1.2
-        elseif merge_count >= 2 then
+        elseif merge_count >= 4 then
             font_scale = 1.1
         end
         local event_fontsize = is_merged and math.max(1, math.floor(fontsize * font_scale + 0.5)) or fontsize
