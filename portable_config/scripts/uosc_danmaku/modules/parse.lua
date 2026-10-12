@@ -989,7 +989,17 @@ function convert_danmaku_to_ass_events(force)
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
         local merge_count = tonumber(d.merge_count) or 1
         local is_merged = merge_count > 1
-        local event_fontsize = is_merged and math.max(1, math.floor(fontsize * 1.2 + 0.5)) or fontsize
+        local font_scale = 1.0
+        if merge_count >= 11 then
+            font_scale = 1.3
+        elseif merge_count >= 7 then
+            font_scale = 1.25
+        elseif merge_count >= 4 then
+            font_scale = 1.2
+        elseif merge_count >= 2 then
+            font_scale = 1.1
+        end
+        local event_fontsize = is_merged and math.max(1, math.floor(fontsize * font_scale + 0.5)) or fontsize
         if is_merged then
             clean_text = clean_text .. string.rep("！", duplicate_burst_exclamation_count(merge_count))
         end
