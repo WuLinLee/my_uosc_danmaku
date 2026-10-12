@@ -787,7 +787,7 @@ local menu_items_config = {
     balanced_lanes = { title = "均匀分布弹幕轨道", hint = style_hint("balanced_lanes"), original = options.balanced_lanes,
         toggle = true, footnote = "点击切换均匀分布或从上往下填充" },
     merge_tolerance = { title = "重复弹幕合并间隔", hint = style_hint("merge_tolerance"), original = options.merge_tolerance,
-        scope = { min = -1, max = 30 }, decimals = 1, footnote = "默认 2 秒；仅合并滚动弹幕（类型 1–3）。统一四档：2–3 条 1.0 倍/青绿；4–6 条 1.1 倍/鲜蓝；7–10 条 1.2 倍/金黄；11 条及以上 1.3 倍/橙红。不显示 xN" },
+        scope = { min = -1, max = 30 }, decimals = 1, footnote = "默认 -1（关闭合并）；仅合并滚动弹幕（类型 1–3）。统一四档：2–3 条 1.0 倍/青绿；4–6 条 1.1 倍/鲜蓝；7–10 条 1.2 倍/金黄；11 条及以上 1.3 倍/橙红。不显示 xN" },
     max_screen_danmaku = { title = "同屏弹幕上限", hint = style_hint("max_screen_danmaku"), original = options.max_screen_danmaku,
         scope = { min = 0, max = 500 }, integer = true, footnote = "输入 0-500；0 表示不限制" },
     merge_without_style = { title = "跨颜色/类型合并重复弹幕", hint = style_hint("merge_without_style"), original = options.merge_without_style,

@@ -651,7 +651,7 @@ function DanmakuArray:new(res_x, res_y, font_size, row_spacing)
         next_side = -1,
     }
     for i = 1, obj.rows do
-        obj.time_length_array[i] = { time = 0, length = 0, empty = true }
+        obj.time_length_array[i] = { time = 0, length = 0, empty = true, scrolling_entries = {}, scrolling_head = 1 }
     end
     setmetatable(obj, self)
     return obj
@@ -659,7 +659,32 @@ end
 
 function DanmakuArray:set_time_length(row, time, length)
     if row > 0 and row <= self.rows then
-        self.time_length_array[row] = { time = time, length = length, empty = false }
+        local state = self.time_length_array[row]
+        state.time = time
+        state.length = length
+        state.empty = false
+    end
+end
+
+function DanmakuArray:set_scrolling_time_length(row, time, length)
+    self:set_time_length(row, time, length)
+    if row > 0 and row <= self.rows then
+        local state = self.time_length_array[row]
+        local entries = state.scrolling_entries or {}
+        state.scrolling_entries = entries
+        state.scrolling_head = state.scrolling_head or 1
+        entries[#entries + 1] = { time = time, length = length }
+
+        -- Compact the queue occasionally so old, expired entries do not accumulate.
+        local head = state.scrolling_head
+        if head > 64 and head > #entries / 2 then
+            local compact = {}
+            for i = head, #entries do
+                compact[#compact + 1] = entries[i]
+            end
+            state.scrolling_entries = compact
+            state.scrolling_head = 1
+        end
     end
 end
 
@@ -684,15 +709,11 @@ function DanmakuArray:is_empty(row)
     return false
 end
 
-local function can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array)
-    if array:is_empty(row) then return true end
-
-    local previous_appear_time = array:get_time(row)
-    local previous_length = array:get_length(row)
+local function can_follow_scrolling_comment(previous_time, previous_length, appear_time, text_length, resolution_x, roll_time)
     local velocity = (text_length + resolution_x) / roll_time
     local previous_velocity = (previous_length + resolution_x) / roll_time
     local delta_velocity = velocity - previous_velocity
-    local delta_x = (appear_time - previous_appear_time) * previous_velocity - previous_length
+    local delta_x = (appear_time - previous_time) * previous_velocity - previous_length
 
     if delta_x >= 0 then
         if delta_velocity <= 0 then return true end
@@ -700,6 +721,37 @@ local function can_use_scrolling_row(row, appear_time, text_length, resolution_x
         if delta_time >= roll_time then return true end
     end
     return false
+end
+
+local function can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array)
+    local state = array.time_length_array[row]
+    if state.empty then return true end
+
+    local entries = state.scrolling_entries or {}
+    local head = state.scrolling_head or 1
+
+    -- Events are laid out in timestamp order. Discard comments that have fully
+    -- exited before checking collisions against every comment still on screen.
+    while head <= #entries and entries[head].time + roll_time <= appear_time do
+        head = head + 1
+    end
+    state.scrolling_head = head
+
+    if head > #entries then
+        state.scrolling_entries = {}
+        state.scrolling_head = 1
+        return true
+    end
+
+    for i = head, #entries do
+        local previous = entries[i]
+        if not can_follow_scrolling_comment(
+            previous.time, previous.length, appear_time, text_length, resolution_x, roll_time
+        ) then
+            return false
+        end
+    end
+    return true
 end
 
 -- 滚动弹幕 Y 坐标算法。
@@ -777,7 +829,7 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     -- 已用轨道可安全复用时，优先使用最近的一条，而不是一味填满空轨道。
     local chosen_row = best_used_row or best_empty_row
     if chosen_row then
-        array:set_time_length(chosen_row, appear_time, text_length)
+        array:set_scrolling_time_length(chosen_row, appear_time, text_length)
         if best_used_row == nil then
             array.next_side = -preferred_side
         end
