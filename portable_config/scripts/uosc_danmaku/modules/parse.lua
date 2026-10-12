@@ -392,7 +392,7 @@ end
 
 local function density_char_count(text)
     local count = 0
-    for _ in tostring(text or ""):gmatch("[%z\\1-\\127\\194-\\244][\\128-\\191]*") do
+    for _ in tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
         count = count + 1
     end
     return count
