@@ -694,6 +694,8 @@ function DanmakuArray:new(res_x, res_y, font_size, row_spacing)
         row_height = row_height,
         rows = math.max(1, math.floor((tonumber(res_y) or row_height) / row_height)),
         time_length_array = {},
+        -- 平衡分配时用于打破对称轨道的平局，避免持续偏向上侧。
+        next_side = -1,
     }
     for i = 1, obj.rows do
         obj.time_length_array[i] = { time = 0, length = 0, empty = true }
@@ -750,8 +752,6 @@ end
 -- 滚动弹幕 Y 坐标算法。
 -- 均匀分布模式从画面上下边缘交替向中心推进，尽量给人物所在的中央区域留出空间。
 -- 每条轨道仍只检查上一条弹幕来判断碰撞，保持轻量；所有轨道都不安全时放弃该条弹幕。
-local DANMAKU_LANE_ZONE_WEIGHTS = { 0.5, 0.7, 0.5, 1, 0.7 }
-
 function get_position_y(font_size, appear_time, text_length, resolution_x, roll_time, array)
     if not options.balanced_lanes then
         for i = 1, array.rows do
@@ -763,79 +763,72 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 只在 displayarea 实际布局高度内分区。按用户权重抽取目标区；
-    -- 在该区用 reservoir sampling 均匀选出安全轨道，无安全轨道才重新抽区。
-    -- 不再为每条弹幕创建五个轨道数组，也不必每次扫描所有五区。
-    local row_count = array.rows
-    local tried_mask = 0
+    local best_used_row = nil
+    local best_used_time = -math.huge
+    local best_used_center_distance = math.huge
+    local best_empty_row = nil
+    local best_empty_spread = -1
+    local best_empty_side_match = false
+    local preferred_side = array.next_side or -1
+    local center = (array.rows + 1) / 2
+    local has_used_row = false
 
-    -- 轨道数少于五时，先排除没有任何轨道的空区。
-    for zone = 1, 5 do
-        local zone_start = math.floor((zone - 1) * row_count / 5) + 1
-        local zone_end = math.floor(zone * row_count / 5)
-        if zone_end < zone_start then
-            tried_mask = tried_mask + 2 ^ (zone - 1)
+    for j = 1, array.rows do
+        if not array:is_empty(j) then
+            has_used_row = true
+            break
         end
     end
 
-    while tried_mask < 31 do
-        local total_weight = 0
-        for zone = 1, 5 do
-            local bit = 2 ^ (zone - 1)
-            if math.floor(tried_mask / bit) % 2 == 0 then
-                total_weight = total_weight + DANMAKU_LANE_ZONE_WEIGHTS[zone]
-            end
-        end
-        if total_weight <= 0 then return nil end
+    for i = 1, array.rows do
+        if can_use_scrolling_row(i, appear_time, text_length, resolution_x, roll_time, array) then
+            if not array:is_empty(i) then
+                -- 选最近用过且仍安全的轨道，使空档尽量短，同时不发生碰撞。
+                local previous_time = array:get_time(i)
+                local center_distance = math.abs(i - center)
+                if best_used_row == nil
+                    or previous_time > best_used_time
+                    or (previous_time == best_used_time and center_distance < best_used_center_distance) then
+                    best_used_row = i
+                    best_used_time = previous_time
+                    best_used_center_distance = center_distance
+                end
+            elseif best_used_row == nil then
+                local spread = math.huge
+                if has_used_row then
+                    for j = 1, array.rows do
+                        if not array:is_empty(j) then
+                            spread = math.min(spread, math.abs(i - j))
+                        end
+                    end
+                else
+                    -- 第一条弹幕靠近中心，后续再按最大间距扩展。
+                    spread = -math.abs(i - center)
+                end
 
-        local ticket = math.random() * total_weight
-        local chosen_zone = nil
-        for zone = 1, 5 do
-            local bit = 2 ^ (zone - 1)
-            if math.floor(tried_mask / bit) % 2 == 0 then
-                ticket = ticket - DANMAKU_LANE_ZONE_WEIGHTS[zone]
-                if ticket < 0 then
-                    chosen_zone = zone
-                    break
+                local side = i - center
+                local matches_preferred = side ~= 0
+                    and ((side > 0 and preferred_side > 0) or (side < 0 and preferred_side < 0))
+                if best_empty_row == nil
+                    or spread > best_empty_spread
+                    or (spread == best_empty_spread and matches_preferred and not best_empty_side_match) then
+                    best_empty_row = i
+                    best_empty_spread = spread
+                    best_empty_side_match = matches_preferred
                 end
             end
         end
-
-        if not chosen_zone then
-            for zone = 5, 1, -1 do
-                local bit = 2 ^ (zone - 1)
-                if math.floor(tried_mask / bit) % 2 == 0 then
-                    chosen_zone = zone
-                    break
-                end
-            end
-        end
-        if not chosen_zone then return nil end
-
-        local zone_start = math.floor((chosen_zone - 1) * row_count / 5) + 1
-        local zone_end = math.floor(chosen_zone * row_count / 5)
-        local safe_count = 0
-        local chosen_row = nil
-
-        -- 蓄水池抽样：在该区全部安全行中等概率保留一条，无须建临时表。
-        for row = zone_start, zone_end do
-            if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
-                safe_count = safe_count + 1
-                if math.random(safe_count) == 1 then
-                    chosen_row = row
-                end
-            end
-        end
-
-        if chosen_row then
-            array:set_time_length(chosen_row, appear_time, text_length)
-            return 1 + (chosen_row - 1) * array.row_height
-        end
-
-        -- 当前区没有安全轨道，从剩余区域按同一权重重新抽取。
-        tried_mask = tried_mask + 2 ^ (chosen_zone - 1)
     end
 
+    -- 已用轨道可安全复用时，优先使用最近的一条，而不是一味填满空轨道。
+    local chosen_row = best_used_row or best_empty_row
+    if chosen_row then
+        array:set_time_length(chosen_row, appear_time, text_length)
+        if best_used_row == nil then
+            array.next_side = -preferred_side
+        end
+        return 1 + (chosen_row - 1) * array.row_height
+    end
     return nil
 end
 
