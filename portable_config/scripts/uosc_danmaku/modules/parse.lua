@@ -750,8 +750,8 @@ local function can_use_scrolling_row(row, appear_time, text_length, resolution_x
 end
 
 -- 滚动弹幕 Y 坐标算法。
--- 均匀分布模式从画面上下边缘交替向中心推进，尽量给人物所在的中央区域留出空间。
--- 每条轨道仍只检查上一条弹幕来判断碰撞，保持轻量；所有轨道都不安全时放弃该条弹幕。
+-- 均匀分布模式优先填充靠近布局中心的安全空轨道，空轨道用完后再复用较早使用的安全轨道。
+-- 不使用固定区域权重；碰撞判断只检查每条轨道上一条弹幕，保持轻量。
 function get_position_y(font_size, appear_time, text_length, resolution_x, roll_time, array)
     if not options.balanced_lanes then
         for i = 1, array.rows do
