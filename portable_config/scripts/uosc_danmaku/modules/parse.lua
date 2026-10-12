@@ -528,6 +528,10 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
     end
 
     local keep = {}
+    local candidate_index = {}
+    for _, candidate in ipairs(candidates) do
+        candidate_index[candidate.index] = true
+    end
     for _, bucket in pairs(buckets) do
         local protected = {}
         local selectable = {}
@@ -583,7 +587,10 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
 
     local filtered = {}
     for index, item in ipairs(items) do
-        if keep[index] then filtered[#filtered + 1] = item end
+        -- Items without a usable timestamp were never density candidates; preserve them.
+        if not candidate_index[index] or keep[index] then
+            filtered[#filtered + 1] = item
+        end
     end
     return filtered
 end
