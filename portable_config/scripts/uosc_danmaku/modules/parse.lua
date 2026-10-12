@@ -539,8 +539,8 @@ local function apply_smart_density(items, font_size, scroll_time, area_ratio)
                 -- identical burst remains. Temporal strata keep the retained copies
                 -- spread across the burst instead of preserving one dense core.
                 for slot = 1, target do
-                    local first = cluster_start + math.floor((slot - 1) * cluster_size / target)
-                    local last = cluster_start + math.floor(slot * cluster_size / target) - 1
+                    local first = cluster_start + math.floor((slot - 1) * cluster_size / target + 0.5)
+                    local last = cluster_start + math.floor(slot * cluster_size / target + 0.5) - 1
                     local best = nil
                     local best_priority = -math.huge
                     local best_tie = -math.huge
