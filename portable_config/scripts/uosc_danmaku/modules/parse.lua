@@ -717,7 +717,7 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
     -- 只对 displayarea 实际布局高度分区。各区按 1:1.5:1:1.5:1 加权抽取，
     -- 区域内在所有安全轨道中随机选一条；没有安全轨道的区域自动跳过。
     -- 碰撞判断仍只检查每条轨道最近一条弹幕，避免引入历史队列的性能成本。
-    local zone_weights = { 1, 1.5, 1, 1.5, 1 }
+    local zone_weights = { 0.5, 0.7, 0.5, 1, 0.7 }
     local safe_rows_by_zone = { {}, {}, {}, {}, {} }
     local row_count = array.rows
 
