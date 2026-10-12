@@ -1,6 +1,27 @@
 local opt = require("mp.options")
 
--- 选项
+-- 样式与过滤参数的唯一代码默认值来源。
+-- .conf 不重复写这些默认值；如需手动覆盖，可以在 .conf 中显式添加同名键。
+DANMAKU_STYLE_DEFAULTS = {
+    bold = true,
+    fontname = "Source Han Sans",
+    fontsize = 55,
+    outline = 1,
+    shadow = 0,
+    scrolltime = 10,
+    opacity = 0.7,
+    displayarea = 0.8,
+    density = 50,
+    row_spacing = 1.2,
+    balanced_lanes = true,
+    merge_tolerance = 0,
+    max_screen_danmaku = 0,
+    merge_without_style = false,
+    blacklist_enabled = true,
+    live_fps_mode = "auto",
+}
+
+-- 其他脚本选项与菜单样式设置
 options = {
     -- 指定弹幕服务器地址，自定义服务需兼容 dandanplay 的 api
     -- 可指定多个用逗号分隔的有序 api_server 列表
@@ -26,15 +47,15 @@ options = {
     -- 设置要使用的 fps 滤镜参数
     fps = "60/1.001",
     -- 直播弹幕专用帧率模式：auto/60/80/120/display
-    live_fps_mode = "auto",
+    live_fps_mode = DANMAKU_STYLE_DEFAULTS.live_fps_mode,
     -- 跨进程样式默认值文件；留空时使用 mpv 配置目录下的 script-opts/uosc_danmaku_style.json
     style_path = "",
     -- 弹幕渲染方式：overlay 使用 OSD 叠层；ass 生成临时 ASS 字幕轨
     render_mode = "overlay",
-    -- 指定合并重复弹幕的时间间隔的容差值，单位为秒。默认值: 0，表示仅合并时间相同的重复弹幕
-    merge_tolerance = 0,
+    -- 重复弹幕合并间隔由 DANMAKU_STYLE_DEFAULTS 统一提供
+    merge_tolerance = DANMAKU_STYLE_DEFAULTS.merge_tolerance,
     -- 合并重复弹幕时是否强制合并类型和颜色不同的弹幕。默认值: false，表示仅合并类型和颜色相同的弹幕
-    merge_without_style = false,
+    merge_without_style = DANMAKU_STYLE_DEFAULTS.merge_without_style,
     -- 指定弹幕关联历史记录文件的路径，支持绝对路径和相对路径
     history_path = "~~/danmaku-history.json",
     open_search_danmaku_menu_key = "Ctrl+d",
@@ -42,37 +63,37 @@ options = {
     -- 中文简繁转换。0-不转换，1-转换为简体，2-转换为繁体
     chConvert = 0,
     --滚动弹幕的显示时间
-    scrolltime = 10,
+    scrolltime = DANMAKU_STYLE_DEFAULTS.scrolltime,
     --固定弹幕的显示时间
     fixtime = 5,
     --字体
-    fontname = "Source Han Sans",
+    fontname = DANMAKU_STYLE_DEFAULTS.fontname,
     --字体大小 
-    fontsize = 55,
+    fontsize = DANMAKU_STYLE_DEFAULTS.fontsize,
     --字体阴影
-    shadow = 0,
+    shadow = DANMAKU_STYLE_DEFAULTS.shadow,
     --字体粗体
-    bold = true,
+    bold = DANMAKU_STYLE_DEFAULTS.bold,
     -- 透明度：0（完全透明）到 1（不透明）
-    opacity = 0.7,
+    opacity = DANMAKU_STYLE_DEFAULTS.opacity,
     --全部弹幕的显示范围(0.0-1.0)
-    displayarea = 0.8,
+    displayarea = DANMAKU_STYLE_DEFAULTS.displayarea,
     -- 智能弹幕密度：0-100，100 表示不进行密度过滤
-    density = 50,
+    density = DANMAKU_STYLE_DEFAULTS.density,
     -- 弹幕轨道间距：字体大小的倍数，1.0 为原始行高，1.2 为额外约 20% 间距
-    row_spacing = 1.2,
+    row_spacing = DANMAKU_STYLE_DEFAULTS.row_spacing,
     -- 是否优先使用上下空间更均匀的弹幕轨道分配
-    balanced_lanes = true,
+    balanced_lanes = DANMAKU_STYLE_DEFAULTS.balanced_lanes,
     --描边 0-4
-    outline = 1,
+    outline = DANMAKU_STYLE_DEFAULTS.outline,
     -- 限制屏幕中同时显示的最大弹幕数量，0 表示不限制
-    max_screen_danmaku = 0,
+    max_screen_danmaku = DANMAKU_STYLE_DEFAULTS.max_screen_danmaku,
     -- 外部屏蔽规则文件路径；兼容原有 XML/JSON/TXT 规则文件
     blacklist_path = "",
     -- 由菜单维护的屏蔽规则文件（每行一条 Lua pattern）
     blacklist_menu_path = "~~/script-opts/uosc_danmaku_blacklist.txt",
     -- 是否启用屏蔽词过滤
-    blacklist_enabled = true,
+    blacklist_enabled = DANMAKU_STYLE_DEFAULTS.blacklist_enabled,
     --指定脚本相关消息显示的消息的对齐方式
     message_anlignment = 7,
     --指定脚本相关消息显示的消息的x轴坐标
