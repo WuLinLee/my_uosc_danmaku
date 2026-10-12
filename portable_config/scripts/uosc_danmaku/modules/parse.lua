@@ -716,47 +716,56 @@ function get_position_y(font_size, appear_time, text_length, resolution_x, roll_
         return nil
     end
 
-    -- 只在 displayarea 对应的实际布局高度内分成五个区域，而不是按整个画面计算。
-    -- 从上到下的目标权重为 1:1.5:1:1.5:1；区域内轮换轨道，碰撞时才尝试其他区域。
-    -- 12 次轮转中五个区域分别出现 2、3、2、3、2 次，对应目标比例。
-    local zone_cycle = { 1, 2, 3, 4, 5, 2, 4, 1, 2, 3, 4, 5 }
-    local slot = array.next_zone_slot or 1
+    -- 只对 displayarea 实际布局高度分区。各区按 1:1.5:1:1.5:1 加权抽取，
+    -- 区域内在所有安全轨道中随机选一条；没有安全轨道的区域自动跳过。
+    -- 碰撞判断仍只检查每条轨道最近一条弹幕，避免引入历史队列的性能成本。
+    local zone_weights = { 1, 1.5, 1, 1.5, 1 }
+    local safe_rows_by_zone = { {}, {}, {}, {}, {} }
     local row_count = array.rows
-    local tried_zones = {}
 
-    for zone_offset = 0, #zone_cycle - 1 do
-        local cycle_index = ((slot + zone_offset - 1) % #zone_cycle) + 1
-        local zone = zone_cycle[cycle_index]
-        if not tried_zones[zone] then
-            tried_zones[zone] = true
-            local zone_start = math.floor((zone - 1) * row_count / 5) + 1
-            local zone_end = math.floor(zone * row_count / 5)
-            local zone_rows = zone_end - zone_start + 1
+    for row = 1, row_count do
+        if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
+            -- 按每条轨道所在的纵向位置归区；当轨道很少时仍让顶部/底部对应外侧区域。
+            local zone = math.floor(((row - 0.5) * 5) / row_count) + 1
+            zone = math.max(1, math.min(5, zone))
+            safe_rows_by_zone[zone][#safe_rows_by_zone[zone] + 1] = row
+        end
+    end
 
-            if zone_rows > 0 then
-                local first_row = array.next_row_by_zone and array.next_row_by_zone[zone]
-                if not first_row or first_row < zone_start or first_row > zone_end then
-                    first_row = zone_start
-                end
+    local total_weight = 0
+    for zone = 1, 5 do
+        if #safe_rows_by_zone[zone] > 0 then
+            total_weight = total_weight + zone_weights[zone]
+        end
+    end
+    if total_weight <= 0 then return nil end
 
-                for row_offset = 0, zone_rows - 1 do
-                    local row = zone_start + ((first_row - zone_start + row_offset) % zone_rows)
-                    if can_use_scrolling_row(row, appear_time, text_length, resolution_x, roll_time, array) then
-                        array:set_time_length(row, appear_time, text_length)
-                        array.next_row_by_zone = array.next_row_by_zone or {}
-                        array.next_row_by_zone[zone] = (row >= zone_end) and zone_start or (row + 1)
-                        -- 权重轮转独立于实际落点；偶发碰撞不会永久改变五区比例。
-                        array.next_zone_slot = (slot % #zone_cycle) + 1
-                        return 1 + (row - 1) * array.row_height
-                    end
-                end
+    -- 先按区域权重随机选区，再在该区域可用的安全轨道中均匀随机选行。
+    local ticket = math.random() * total_weight
+    local chosen_zone = nil
+    for zone = 1, 5 do
+        if #safe_rows_by_zone[zone] > 0 then
+            ticket = ticket - zone_weights[zone]
+            if ticket < 0 then
+                chosen_zone = zone
+                break
             end
         end
     end
 
-    -- 此次没有可用轨道时也推进权重，避免拥挤区反复获得优先权。
-    array.next_zone_slot = (slot % #zone_cycle) + 1
-    return nil
+    if not chosen_zone then
+        for zone = 5, 1, -1 do
+            if #safe_rows_by_zone[zone] > 0 then
+                chosen_zone = zone
+                break
+            end
+        end
+    end
+
+    local safe_rows = safe_rows_by_zone[chosen_zone]
+    local chosen_row = safe_rows[math.random(1, #safe_rows)]
+    array:set_time_length(chosen_row, appear_time, text_length)
+    return 1 + (chosen_row - 1) * array.row_height
 end
 
 -- 固定弹幕 Y 坐标算法
