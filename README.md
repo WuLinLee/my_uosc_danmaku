@@ -1,8 +1,8 @@
 # uosc_danmaku：mpv 弹幕增强补丁
 
-本仓库为现有 `uosc_danmaku` 脚本提供一组模块更新和配置覆盖，重点改进弹幕样式菜单、设置持久化、滚动轨道布局、智能密度筛选、重复弹幕合并、屏蔽词管理及加载诊断。
+本仓库为现有 `uosc_danmaku` 脚本提供一组模块更新和配置覆盖，重点改进弹幕样式菜单、设置持久化、滚动轨道布局、智能密度筛选、重复弹幕合并、屏蔽词管理、加载诊断、ASS 字幕轨保护和提示显示时间。
 
-> **注意：这不是一份完整的 mpv 配置包，也不是可独立运行的弹幕插件。** 仓库只包含 4 个模块文件和 2 个配置文件；它们依赖你已有的、与这些模块接口兼容的完整 `uosc_danmaku` 安装。请勿把本仓库当作完整的 `portable_config` 直接替换使用。
+> **注意：这不是一份完整的 mpv 配置包，也不是可独立运行的弹幕插件。** 仓库只包含 5 个模块文件和 2 个配置文件；它们依赖你已有的、与这些模块接口兼容的完整 `uosc_danmaku` 安装。请勿把本仓库当作完整的 `portable_config` 直接替换使用。
 
 ## 目录
 
@@ -15,6 +15,7 @@
 - [重复弹幕合并](#重复弹幕合并)
 - [屏蔽词与弹幕源屏蔽](#屏蔽词与弹幕源屏蔽)
 - [直播弹幕](#直播弹幕)
+- [ASS 字幕保护与提示时间](#ass-字幕保护与提示时间)
 - [性能日志](#性能日志)
 - [功能边界与验证](#功能边界与验证)
 
@@ -26,6 +27,7 @@
 | `portable_config/scripts/uosc_danmaku/modules/parse.lua` | XML/JSON 弹幕解析、屏蔽词匹配、智能密度、重复弹幕合并、轨道布局和 ASS 事件生成 |
 | `portable_config/scripts/uosc_danmaku/modules/options.lua` | 脚本选项定义，以及样式/过滤设置的统一代码默认值 |
 | `portable_config/scripts/uosc_danmaku/modules/style.lua` | 样式 JSON 的读取、保存、校验、清除和运行时恢复 |
+| `portable_config/scripts/uosc_danmaku/modules/render.lua` | ASS 弹幕轨加载与卸载、主/次字幕状态保护、弹幕 OSD 提示时长 |
 | `portable_config/script-opts/uosc_danmaku.conf` | 本仓库采用的脚本选项覆盖 |
 | `portable_config/script-opts/uosc.conf` | uosc 控制栏布局示例，加入「弹幕设置」按钮 |
 
@@ -40,7 +42,7 @@
 
 1. 已有可正常工作的 mpv 和完整的 `uosc_danmaku` 插件安装。本仓库没有包含插件入口脚本、其他模块、字典文件或上游工具函数；其中的模块会调用主脚本初始化的全局函数和数据。
 2. 建议同时安装并启用 uosc，以使用完整的图形菜单和控制栏快捷按钮。菜单代码也保留了 `mp.input` 回退路径，但 `uosc.conf` 中的控制栏按钮只对 uosc 生效。
-3. 使用与现有插件版本相匹配的模块。不要只把这 4 个文件放进一个空的 mpv 配置目录后期待插件独立启动。
+3. 使用与现有插件版本相匹配的模块。不要只把这 5 个模块文件放进一个空的 mpv 配置目录后期待插件独立启动。
 
 ## 安装与更新
 
@@ -81,7 +83,7 @@
   controls=menu,ST-stats_tog,ST-thumb_tog,gap,play_pause,gap,subtitles,audio,<has_chapter>chapters,button:danmaku_menu,<has_many_edition>editions,<has_many_video>video,<stream>stream-quality,gap,space,speed,space,shuffle,loop-playlist,loop-file,gap,prev,items,next,gap,fullscreen
   ```
 
-- **4 个 Lua 模块**：作为一组更新，分别覆盖目标目录中的同名文件。不要删除其他插件模块或主脚本。
+- **5 个 Lua 模块**：作为一组更新，分别覆盖目标目录中的同名文件：`menu.lua`、`options.lua`、`parse.lua`、`style.lua` 和 `render.lua`。不要删除其他插件模块或主脚本。
 
 复制完成后重启 mpv，使脚本和配置重新加载。打开「弹幕设置」总菜单，再进入「弹幕样式」即可查看设置。
 
@@ -228,6 +230,30 @@ JSON 中缺失或无效的字段不会覆盖当前基础值。样式默认值集
 
 「直播帧率」支持 `auto`、`60`、`80`、`120`、`display` 五种模式，默认 `auto`。本仓库的 `uosc_danmaku.conf` 同时启用了 `vf_fps=yes`；实际帧率滤镜效果仍取决于 mpv 当前视频、显示设备和主脚本的滤镜同步逻辑。
 
+## ASS 字幕保护与提示时间
+
+### ASS 字幕轨重载
+
+本仓库的 `render.lua` 以你设备上的版本为基础，并合入 Luoxue 上游在 2026-11-14 的修复（`df51aa9795c0184719d01aeb4287746780f59f47`，`preserve primary subtitle on reload`）：
+
+- 重载弹幕 ASS 字幕轨前，先记录当前主字幕轨（`sid`）。
+- 移除旧弹幕轨后，通过 `sync sub-add` 等待 mpv 注册新轨。
+- 注册完成后恢复原主字幕轨，再将弹幕轨设为次字幕轨。
+- 重新生成 ASS 弹幕文件时，不会意外把弹幕轨切成主字幕或打乱用户原来的主字幕选择。
+
+### 弹幕提示显示时间
+
+由 `render.lua` 的统一 `show_message()` 入口管理：
+
+| 提示类型 | 显示时间 |
+| --- | ---: |
+| 加载弹幕初始化 / 弹幕加载中 | 0.5 秒 |
+| 关闭弹幕 | 0.5 秒 |
+| 首次匹配成功 / 弹幕加载成功（每个视频） | 2 秒 |
+| 同一视频后续再次显示匹配成功 / 弹幕加载成功 | 0.5 秒 |
+
+首次成功提示状态在切换/卸载当前视频时重置。其他不属于上述类别的菜单提示仍按各自调用传入的时长显示，不会被统一缩短。
+
 ## 性能日志
 
 将 mpv 日志级别调到 verbose 后，可在日志中查找以下标记：
@@ -250,7 +276,7 @@ JSON 中缺失或无效的字段不会覆盖当前基础值。样式默认值集
 
 智能密度算法是面向 LuaJIT 的适配实现，不是浏览器版算法的完整逐字节等价移植，也不执行完整 Unicode NFKC 规范化。
 
-本 README 根据仓库当前的 4 个 Lua 模块和 2 个配置文件核对整理；此处没有启动真实 mpv/uosc 环境进行播放验证。更新后请在自己的环境中检查菜单操作、弹幕显示、直播刷新、控制栏按钮及 mpv 日志。
+本 README 根据仓库当前的 5 个 Lua 模块和 2 个配置文件核对整理；此处没有启动真实 mpv/uosc 环境进行播放验证。更新后请在自己的环境中检查菜单操作、弹幕显示、直播刷新、控制栏按钮及 mpv 日志。
 
 ## 许可证
 
