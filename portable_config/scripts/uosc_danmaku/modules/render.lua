@@ -521,8 +521,17 @@ local function get_message_duration(text, requested_time)
         return 2
     end
 
-    if content:find("关闭弹幕", 1, true)
-        or (content:find("弹幕", 1, true) and content:find("加载", 1, true)) then
+    local is_close_danmaku = content:find("关闭弹幕", 1, true)
+    if is_close_danmaku then
+        -- After the first successful match notice, suppress later close notices
+        -- for this playback session as well.
+        if load_success_message_shown then
+            return nil
+        end
+        return 0.5
+    end
+
+    if content:find("弹幕", 1, true) and content:find("加载", 1, true) then
         return 0.5
     end
 
