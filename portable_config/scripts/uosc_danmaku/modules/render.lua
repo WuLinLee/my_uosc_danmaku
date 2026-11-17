@@ -523,9 +523,11 @@ local function get_message_duration(text, requested_time)
 
     local is_close_danmaku = content:find("关闭弹幕", 1, true)
     if is_close_danmaku then
-        -- After the first successful match notice, suppress later close notices
-        -- for this playback session as well.
-        if load_success_message_shown then
+        -- The primary success notice is emitted by main.lua's show_loaded().
+        -- COMMENTS is set when the current video's danmaku has loaded, so use
+        -- it as a fallback in case that notice was emitted through another
+        -- callback path and the local text flag was not updated here.
+        if load_success_message_shown or COMMENTS ~= nil then
             return nil
         end
         return 0.5
