@@ -270,6 +270,7 @@ local function load_ass_subtitle(path, signature)
     ass_loaded_signature = signature
     ass_reload_pending = false
 end
+
 local function render_ass_danmaku()
     local events = active_events()
     if events == nil then return end
@@ -521,9 +522,8 @@ local function get_message_duration(text, requested_time)
         return 2
     end
 
-    if content:find("加载弹幕", 1, true)
-        or content:find("弹幕加载中", 1, true)
-        or content:find("关闭弹幕", 1, true) then
+    if content:find("关闭弹幕", 1, true)
+        or (content:find("弹幕", 1, true) and content:find("加载", 1, true)) then
         return 0.5
     end
 
