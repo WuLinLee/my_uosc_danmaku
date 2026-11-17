@@ -500,8 +500,7 @@ function hide_danmaku_func(live)
     end
 end
 
--- The first danmaku match-success notice is kept slightly longer;
--- subsequent toggles for the same file use the short notification duration.
+-- Show the danmaku match-success notice only once per video.
 local load_success_message_shown = false
 local message_overlay = mp.create_osd_overlay('ass-events')
 local message_timer = mp.add_timeout(3, function()
@@ -516,7 +515,7 @@ local function get_message_duration(text, requested_time)
 
     if is_load_success then
         if load_success_message_shown then
-            return 0.5
+            return nil
         end
         load_success_message_shown = true
         return 2
@@ -531,7 +530,11 @@ local function get_message_duration(text, requested_time)
 end
 
 function show_message(text, time)
-    message_timer.timeout = get_message_duration(text, time)
+    local duration = get_message_duration(text, time)
+    if not duration then
+        return
+    end
+    message_timer.timeout = duration
     message_timer:kill()
     message_overlay:remove()
     local message = string.format("{\\an%d\\pos(%d,%d)}%s", options.message_anlignment,
